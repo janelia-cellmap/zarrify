@@ -8,6 +8,7 @@ import dask.array as da
 import copy
 from zarrify.utils.volume import Volume
 
+
 class Tiff3D(Volume):
 
     def __init__(

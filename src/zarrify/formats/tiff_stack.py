@@ -9,6 +9,7 @@ from natsort import natsorted
 from glob import glob
 from zarrify.utils.volume import Volume
 
+
 class TiffStack(Volume):
 
     def __init__(
@@ -25,7 +26,7 @@ class TiffStack(Volume):
             input_filepath (str): path to source tiff file.
         """
         super().__init__(src_path, axes, scale, translation, units)
-        
+
         self.stack_list = natsorted(glob(os.path.join(src_path, "*.tif*")))
         probe_image_store = imread(
             os.path.join(src_path, self.stack_list[0]), aszarr=True
@@ -34,7 +35,6 @@ class TiffStack(Volume):
 
         self.dtype = probe_image_arr.dtype
         self.shape = [len(self.stack_list)] + list(probe_image_arr.shape)
-
 
     def write_tile_slab_to_zarr(
         self, chunk_num: int, zarray: zarr.Array, src_volume: list

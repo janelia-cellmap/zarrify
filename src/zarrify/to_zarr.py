@@ -74,17 +74,14 @@ def cli(src, dest, num_workers, cluster, zarr_chunks, axes, translation, scale, 
 
     # create a dask client to submit tasks
     client = initialize_dask_client(cluster)
-    
-    
+
     if os.path.isdir(src):
         dataset = TiffStack(src, axes, scale, translation, units)
     elif src.endswith(".tif") or src.endswith(".tiff"):
         dataset = Tiff3D(src, axes, scale, translation, units)
     elif src.endwith(".mrc"):
         dataset = Mrc3D(src, axes, scale, translation, units)
-        
-    
-    
+
     z_store = zarr.NestedDirectoryStore(dest)
     z_root = zarr.open(store=z_store, mode="a")
     z_arr = z_root.require_dataset(
@@ -101,6 +98,7 @@ def cli(src, dest, num_workers, cluster, zarr_chunks, axes, translation, scale, 
     client.cluster.scale(0)
     # populate zarr metadata
     dataset.add_ome_metadata(z_root)
+
 
 if __name__ == "__main__":
     cli()
