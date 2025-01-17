@@ -12,7 +12,7 @@ def initialize_dask_client(cluster_type : str)->Client:
     Returns:
         (Client): instance of a dask client
     """
-    if cluster == "":
+    if cluster_type == "":
         print("Did not specify which instance of the dask client to use!")
         sys.exit(0)
     elif cluster_type=='lsf':

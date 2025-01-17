@@ -23,7 +23,7 @@ class Mrc3D(Volume):
         Args:
             input_filepath (str): path to source tiff file.
         """
-        super().__init__(src_path, axes, translation, scale, units)
+        super().__init__(src_path, axes, scale, translation, units)
 
         self.memmap = mrcfile.mmap(self.src_path, mode='r')
         self.ndim = self.memmap.data.ndim
@@ -31,7 +31,7 @@ class Mrc3D(Volume):
         self.dtype = self.memmap.data.dtype
      
     def save_chunk(self,
-                    z_arr: zarr.core.Array,
+                    z_arr: zarr.Array,
                     chunk_slice : Tuple[slice, ...]):
         """Copies data from a particular part of the input mrc array into a specific chunk of the output zarr array.
 

@@ -7,7 +7,7 @@ import time
 import dask.array as da
 from natsort import natsorted
 from glob import glob
-from volume import Volume
+from zarrify.utils.volume import Volume
 
 class TiffStack(Volume):
 
@@ -24,7 +24,7 @@ class TiffStack(Volume):
         Args:
             input_filepath (str): path to source tiff file.
         """
-        super().__init__(src_path, axes, translation, scale, units)
+        super().__init__(src_path, axes, scale, translation, units)
         
         self.stack_list = natsorted(glob(os.path.join(src_path, "*.tif*")))
         probe_image_store = imread(

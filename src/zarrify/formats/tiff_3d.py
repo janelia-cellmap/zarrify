@@ -6,7 +6,7 @@ from dask.distributed import Client, wait
 import time
 import dask.array as da
 import copy
-from volume import Volume
+from zarrify.utils.volume import Volume
 
 class Tiff3D(Volume):
 
@@ -23,7 +23,7 @@ class Tiff3D(Volume):
         Args:
             input_filepath (str): path to source tiff file.
         """
-        super().__init__(src_path, axes, translation, scale, units)
+        super().__init__(src_path, axes, scale, translation, units)
 
         self.zarr_store = imread(os.path.join(src_path), aszarr=True)
         self.zarr_arr = zarr.open(self.zarr_store)
