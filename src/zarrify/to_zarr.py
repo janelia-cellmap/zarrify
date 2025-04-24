@@ -11,70 +11,6 @@ from zarrify.formats.mrc import Mrc3D
 from zarrify.formats.n5 import N53D
 from zarrify.utils.dask_utils import initialize_dask_client
 
-
-# @click.command("zarrify")
-# @click.option(
-#     "--src",
-#     "-s",
-#     type=click.Path(exists=True),
-#     help="Input file/directory location",
-# )
-# @click.option("--dest", "-s", type=click.STRING, help="Output .zarr file path.")
-# @click.option(
-#     "--num_workers", "-w", default=100, type=click.INT, help="Number of dask workers"
-# )
-# @click.option(
-#     "--cluster",
-#     "-c",
-#     default="",
-#     type=click.STRING,
-#     help="Which instance of dask client to use. Local client - 'local', cluster 'lsf'",
-# )
-# @click.option(
-#     "--zarr_chunks",
-#     "-zc",
-#     nargs=3,
-#     default=(64, 128, 128),
-#     type=click.INT,
-#     help="Chunk size for (z, y, x) axis order. z-axis is normal to the tiff stack plane. Default (64, 128, 128)",
-# )
-# @click.option(
-#     "--axes",
-#     "-a",
-#     nargs=3,
-#     default=("z", "y", "x"),
-#     type=str,
-#     help="Metadata axis names. Order matters. \n Example: -a z y x",
-# )
-# @click.option(
-#     "--translation",
-#     "-t",
-#     nargs=3,
-#     default=(0.0, 0.0, 0.0),
-#     type=float,
-#     help="Metadata translation(offset) value. Order matters. \n Example: -t 1.0 2.0 3.0",
-# )
-# @click.option(
-#     "--scale",
-#     "-s",
-#     nargs=3,
-#     default=(1.0, 1.0, 1.0),
-#     type=float,
-#     help="Metadata scale value. Order matters. \n Example: -s 1.0 2.0 3.0",
-# )
-# @click.option(
-#     "--units",
-#     "-u",
-#     nargs=3,
-#     default=("nanometer", "nanometer", "nanometer"),
-#     type=str,
-#     help="Metadata unit names. Order matters. \n Example: -t nanometer nanometer nanometer",
-# )
-# def cli(src, dest, num_workers, cluster, zarr_chunks, axes, translation, scale, units):
-
-    # create a dask client to submit tasks
-#client = initialize_dask_client(cluster)
-
 def to_zarr(src : str,
             dest: str,
             client : Client,
@@ -111,5 +47,79 @@ def to_zarr(src : str,
     dataset.add_ome_metadata(z_root)
 
 
-# if __name__ == "__main__":
-#     cli()
+@click.command("zarrify")
+@click.option(
+    "--src",
+    "-s",
+    type=click.Path(exists=True),
+    help="Input file/directory location",
+)
+@click.option("--dest", "-s", type=click.STRING, help="Output .zarr file path.")
+@click.option(
+    "--num_workers", "-w", default=100, type=click.INT, help="Number of dask workers"
+)
+@click.option(
+    "--cluster",
+    "-c",
+    default="",
+    type=click.STRING,
+    help="Which instance of dask client to use. Local client - 'local', cluster 'lsf'",
+)
+@click.option(
+    "--zarr_chunks",
+    "-zc",
+    nargs=3,
+    default=(64, 128, 128),
+    type=click.INT,
+    help="Chunk size for (z, y, x) axis order. z-axis is normal to the tiff stack plane. Default (64, 128, 128)",
+)
+@click.option(
+    "--axes",
+    "-a",
+    nargs=3,
+    default=("z", "y", "x"),
+    type=str,
+    help="Metadata axis names. Order matters. \n Example: -a z y x",
+)
+@click.option(
+    "--translation",
+    "-t",
+    nargs=3,
+    default=(0.0, 0.0, 0.0),
+    type=float,
+    help="Metadata translation(offset) value. Order matters. \n Example: -t 1.0 2.0 3.0",
+)
+@click.option(
+    "--scale",
+    "-s",
+    nargs=3,
+    default=(1.0, 1.0, 1.0),
+    type=float,
+    help="Metadata scale value. Order matters. \n Example: -s 1.0 2.0 3.0",
+)
+@click.option(
+    "--units",
+    "-u",
+    nargs=3,
+    default=("nanometer", "nanometer", "nanometer"),
+    type=str,
+    help="Metadata unit names. Order matters. \n Example: -t nanometer nanometer nanometer",
+)
+def cli(src, dest, num_workers, cluster, zarr_chunks, axes, translation, scale, units):
+
+    # create a dask client to submit tasks
+    client = initialize_dask_client(cluster)
+    
+    # convert src dataset(n5, tiff, mrc) to zarr ome dataset 
+    to_zarr(src,
+            dest,
+            client,
+            num_workers,
+            zarr_chunks,
+            axes, 
+            scale,
+            translation,
+            units)
+
+if __name__ == "__main__":
+    cli()
