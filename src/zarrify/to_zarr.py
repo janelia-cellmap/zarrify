@@ -1,6 +1,6 @@
 import zarr
 from numcodecs import Zstd
-import os
+from pathlib import Path
 import click
 import sys
 from dask.distributed import Client
@@ -10,24 +10,72 @@ from zarrify.formats.tiff import Tiff3D
 from zarrify.formats.mrc import Mrc3D
 from zarrify.formats.n5 import N53D
 from zarrify.utils.dask_utils import initialize_dask_client
+from typing import Union
+
+
+def init_dataset(src :str,
+                 axes : list[str],
+                 scale : list[float],
+                 translation : list[float],
+                 units : list[str]) -> Union[TiffStack, Tiff3D, N53D, Mrc3D]:
+    """Returns an instance of a dataset class (TiffStack, N53D, Mrc3D, or Tiff3D), depending on the input file format.
+
+    Args:
+        src (str): source file/container location
+        axes (list[str]): axis order (for ome-zarr metadata)
+        scale (list[float]): voxel size (for ome-zarr metadata)
+        translation (list[float]): offset (for ome-zarr metadata)
+        units (list[str]): physical units (for ome-zarr metadata)
+
+    Raises:
+        ValueError: return value error if the input file format not in the list.
+
+    Returns:
+        Union[TiffStack, Tiff3D, N53D, Mrc3D]: return a file format object depending on input file format. 
+        \n All types of file formats objects have identical instance methods (write_to_zarr, add_ome_metadata) to emulate API abstraction. 
+    """
+    
+    src_path = Path(src)
+    params = (src, axes, scale, translation, units)
+
+    if src_path.is_dir():
+        return TiffStack(*params)
+    
+    ext = src_path.suffix.lower()
+    
+    if '.n5' in src_path.name:
+        return N53D(*params)
+    elif ext == ".mrc":
+        return Mrc3D(*params)
+    elif ext in (".tif", ".tiff"):
+        return Tiff3D(*params)
+    
+    raise ValueError(f"Unsupported source type: {src}")
 
 def to_zarr(src : str,
             dest: str,
             client : Client,
             num_workers : int = 20,
             zarr_chunks : list[int] = [128]*3,
-            axes : list[str] = ('z', 'y', 'x'), 
-            scale : list[float] = [1.0]*3,
-            translation : list[float] = [0.0]*3,
-            units: list[str] = ['nanometer']*3):   
-    if '.n5' in src:
-        dataset = N53D(src, axes, scale, translation, units)
-    if src.endswith(".mrc"):
-        dataset = Mrc3D(src, axes, scale, translation, units)
-    elif src.endswith(".tif") or src.endswith(".tiff"):
-        dataset = Tiff3D(src, axes, scale, translation, units)
-    if os.path.isdir(src):
-        dataset = TiffStack(src, axes, scale, translation, units)
+            axes : list[str] = ['z', 'y', 'x'], 
+            scale : list[float] = [1.0,]*3,
+            translation : list[float] = [0.0,]*3,
+            units: list[str] = ['nanometer',]*3):
+    """Convert Tiff stack, 3D Tiff, N5, or MRC file to OME-Zarr.
+
+    Args:
+        src (str): input data location.
+        dest (str): output zarr group location.
+        client (Client): dask client instance.
+        num_workers (int, optional): Number of dask workers. Defaults to 20.
+        zarr_chunks (list[int], optional): _description_. Defaults to [128,]*3.
+        axes (list[str], optional): axis order. Defaults to ['z', 'y', 'x'].
+        scale (list[float], optional): voxel size (in physical units). Defaults to [1.0,]*3.
+        translation (list[float], optional): offset (in physical units). Defaults to [0.0,]*3.
+        units (list[str], optional): physical units. Defaults to ['nanometer']*3.
+    """
+    
+    dataset = init_dataset(src, axes, scale, translation, units)
 
     z_store = zarr.NestedDirectoryStore(dest)
     z_root = zarr.open(store=z_store, mode="a")
