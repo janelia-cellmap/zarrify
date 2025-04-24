@@ -2,3 +2,4 @@ __pycache__/
 *.py[cod]
 dask_dashboard_link.txt
 poetry.lock
+dist/
