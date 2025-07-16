@@ -7,7 +7,9 @@ from dask.distributed import Client, wait
 from toolz import partition_all
 import time
 from zarrify.utils.volume import Volume
-
+from abc import ABCMeta
+from numcodecs import Zstd
+import logging
 
 class Mrc3D(Volume):
 
@@ -45,8 +47,10 @@ class Mrc3D(Volume):
 
     def write_to_zarr(
         self,
-        z_arr: zarr.Array,
+        dest: str,
         client: Client,
+        zarr_chunks : list[int],
+        comp : ABCMeta = Zstd(level=6),
     ):
         """Use mrcfile memmap to access small parts of the mrc file and write them into zarr chunks.
 
@@ -54,6 +58,21 @@ class Mrc3D(Volume):
             dest_path (str): path to the zarr group where the output dataset is stored.
             client (Client): instance of a dask client
         """
+        
+        logging.basicConfig(level=logging.INFO, 
+                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+        
+        z_store = zarr.NestedDirectoryStore(dest)
+        z_root = zarr.open(store=z_store, mode="a")
+        z_arr = z_root.require_dataset(
+            name="s0",
+            shape=self.shape,
+            dtype=self.dtype,
+            chunks=zarr_chunks,
+            compressor=comp,
+        )
+
 
         out_slices = slices_from_chunks(
             normalize_chunks(z_arr.chunks, shape=z_arr.shape)
@@ -62,12 +81,12 @@ class Mrc3D(Volume):
 
         for idx, part in enumerate(out_slices_partitioned):
 
-            print(f"{idx + 1} / {len(out_slices_partitioned)}")
+            logging.info(f"{idx + 1} / {len(out_slices_partitioned)}")
             start = time.time()
             fut = client.map(lambda v: self.save_chunk(z_arr, v), part)
-            print(
+            logging.info(
                 f"Submitted {len(part)} tasks to the scheduler in {time.time()- start}s"
             )
             # wait for all the futures to complete
             result = wait(fut)
-            print(f"Completed {len(part)} tasks in {time.time() - start}s")
+            logging.info(f"Completed {len(part)} tasks in {time.time() - start}s")

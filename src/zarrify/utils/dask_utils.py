@@ -2,6 +2,7 @@ from dask_jobqueue import LSFCluster
 from dask.distributed import Client, LocalCluster
 import os
 import sys
+import logging
 
 
 def initialize_dask_client(cluster_type: str) -> Client:
@@ -14,7 +15,7 @@ def initialize_dask_client(cluster_type: str) -> Client:
         (Client): instance of a dask client
     """
     if cluster_type == "":
-        print("Did not specify which instance of the dask client to use!")
+        logging.info("Did not specify which instance of the dask client to use!")
         sys.exit(0)
     elif cluster_type == "lsf":
         num_cores = 1
@@ -35,5 +36,5 @@ def initialize_dask_client(cluster_type: str) -> Client:
         os.path.join(os.getcwd(), "dask_dashboard_link" + ".txt"), "w"
     ) as text_file:
         text_file.write(str(client.dashboard_link))
-    print(client.dashboard_link)
+    logging.info(client.dashboard_link)
     return client
