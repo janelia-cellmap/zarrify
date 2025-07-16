@@ -5,7 +5,7 @@ import sys
 import logging
 
 
-def initialize_dask_client(cluster_type: str | None = None) -> Client:
+def initialize_dask_client(cluster_type: str) -> Client:
     """Initialize dask client.
 
     Args:
@@ -14,8 +14,9 @@ def initialize_dask_client(cluster_type: str | None = None) -> Client:
     Returns:
         (Client): instance of a dask client
     """
-    if cluster_type == None:
-        raise ValueError("Cluster type must be specified")
+    if cluster_type == "":
+        logging.info("Did not specify which instance of the dask client to use!")
+        sys.exit(0)
     elif cluster_type == "lsf":
         num_cores = 1
         cluster = LSFCluster(
@@ -29,8 +30,6 @@ def initialize_dask_client(cluster_type: str | None = None) -> Client:
         )
     elif cluster_type == "local":
         cluster = LocalCluster()
-    else:
-        raise ValueError(f"Unsupported cluster type: {cluster_type}")
 
     client = Client(cluster)
     with open(
