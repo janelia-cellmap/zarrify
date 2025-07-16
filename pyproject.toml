@@ -8,7 +8,7 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "zarr (==2.16.1)",
+    "zarr (==2.18.5)",
     "mrcfile (>=1.5.3,<2.0.0)",
     "dask-jobqueue (==0.8.2)",
     "colorama (>=0.4.6,<0.5.0)",

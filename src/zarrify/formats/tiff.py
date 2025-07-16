@@ -42,16 +42,7 @@ class Tiff3D(Volume):
         comp : ABCMeta = Zstd(level=6),
         ):
         
-        z_store = zarr.NestedDirectoryStore(dest)
-        z_root = zarr.open(store=z_store, mode="a")
-        z_arr = z_root.require_dataset(
-            name="s0",
-            shape=self.shape,
-            dtype=self.dtype,
-            chunks=zarr_chunks,
-            compressor=comp,
-        )
-        
+        z_arr = self.get_output_array(dest, zarr_chunks, comp)
         chunks_list = np.arange(0, z_arr.shape[0], z_arr.chunks[0])
 
         src_path = copy.copy(self.src_path)

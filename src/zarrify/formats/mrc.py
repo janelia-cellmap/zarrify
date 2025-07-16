@@ -63,17 +63,7 @@ class Mrc3D(Volume):
                          format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
         
-        z_store = zarr.NestedDirectoryStore(dest)
-        z_root = zarr.open(store=z_store, mode="a")
-        z_arr = z_root.require_dataset(
-            name="s0",
-            shape=self.shape,
-            dtype=self.dtype,
-            chunks=zarr_chunks,
-            compressor=comp,
-        )
-
-
+        z_arr = self.get_output_array(dest, zarr_chunks, comp)
         out_slices = slices_from_chunks(
             normalize_chunks(z_arr.chunks, shape=z_arr.shape)
         )
