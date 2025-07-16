@@ -31,8 +31,8 @@ def init_dataset(src :str,
         ValueError: return value error if the input file format not in the list.
 
     Returns:
-        Union[TiffStack, Tiff3D, N53D, Mrc3D]: return a file format object depending on input file format. 
-        \n All types of file formats objects have identical instance methods (write_to_zarr, add_ome_metadata) to emulate API abstraction. 
+        Union[TiffStack, Tiff3D, N53D, Mrc3D]: return a file format object depending on the input file format. 
+        \n All different file formats objects have identical instance methods (write_to_zarr, add_ome_metadata) to emulate API abstraction. 
     """
     
     src_path = Path(src)
@@ -77,22 +77,12 @@ def to_zarr(src : str,
     
     dataset = init_dataset(src, axes, scale, translation, units)
 
-    z_store = zarr.NestedDirectoryStore(dest)
-    z_root = zarr.open(store=z_store, mode="a")
-    z_arr = z_root.require_dataset(
-        name="s0",
-        shape=dataset.shape,
-        dtype=dataset.dtype,
-        chunks=zarr_chunks,
-        compressor=Zstd(level=6),
-    )
-
     # write in parallel to zarr using dask
     client.cluster.scale(num_workers)
-    dataset.write_to_zarr(z_arr, client)
+    dataset.write_to_zarr(dest, client, zarr_chunks)
     client.cluster.scale(0)
     # populate zarr metadata
-    dataset.add_ome_metadata(z_root)
+    dataset.add_ome_metadata(dest)
 
 
 @click.command("zarrify")

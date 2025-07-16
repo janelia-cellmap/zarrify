@@ -19,12 +19,13 @@ class Volume:
             "units": units,
         }
 
-    def add_ome_metadata(self, root: zarr.Group):
+    def add_ome_metadata(self, dest: str):
         """Add selected tiff metadata to zarr attributes file (.zattrs).
 
         Args:
             root (zarr.Group): root group of the output zarr array
         """
+        root = zarr.open(dest, mode = 'a')
         # json template for a multiscale structure
         z_attrs: dict = {"multiscales": [{}]}
         z_attrs["multiscales"][0]["axes"] = [
