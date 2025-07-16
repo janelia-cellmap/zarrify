@@ -7,6 +7,16 @@ import natsort
 from operator import itemgetter
 import pydantic_zarr as pz
 import dask.array as da
+from dask.array.core import slices_from_chunks, normalize_chunks
+from toolz import partition_all
+from dask.distributed import Client, wait
+from typing import Tuple
+from time import time
+import numpy as np
+import logging 
+import pint
+from abc import ABCMeta
+from numcodecs import Zstd
 
 class N5Group(Volume):
     
@@ -24,35 +34,15 @@ class N5Group(Volume):
             input_filepath (str): path to source tiff file.
         """
         super().__init__(src_path, axes, scale, translation, units)
-        self.store_path, self.arr_path = self.separate_store_path(src_path, '')
+        self.store_path, self.path = self.separate_store_path(src_path, '')
         self.n5_store = zarr.N5Store(self.store_path)
-        self.n5_arr = zarr.open(store = self.n5_store, path=self.arr_path, mode='r')
+        
+        self.n5_obj = zarr.open(store = self.n5_store, path=self.path, mode='r')
 
         self.shape = self.n5_arr.shape
         self.dtype = self.n5_arr.dtype
         self.chunks = self.n5_arr.chunks
         self.compressor = self.n5_arr.compressor
-
-    def import_datasets(self,
-                        zarrdest, repair_n5_attrs):
-
-        if repair_n5_attrs:
-            self.reconstruct_json(os.path.join(self.store_path, self.arr_path))
-                
-        n5_root = zarr.open_group(self.n5_store, mode = 'r')
-        zarr_arrays = (n5_root.arrays(recurse=True))
-
-        z_store = zarr.NestedDirectoryStore(zarrdest)
-        zg = self.copy_n5_tree(n5_root, z_store, comp)
-
-        self.normalize_to_omengff(zg)
-
-        for item in zarr_arrays:
-            n5arr = item[1]
-            darray = da.from_array(n5arr, chunks = n5arr.chunks)
-            dataset = zarr.open_array(os.path.join(zarrdest, n5arr.path), mode='a')
-            
-            da.store(darray, dataset, lock = False)
 
     def separate_store_path(self,
                             store : str,
@@ -87,23 +77,13 @@ class N5Group(Volume):
             if os.path.isdir(os.path.join(n5src, obj)):
                 self.reconstruct_json(os.path.join(n5src, obj))
                 
-    def apply_ome_template(zgroup : zarr.Group):
+    def apply_ome_template(self, zgroup : zarr.Group):
     
-        f_zattrs_template = open('src/zarr_attrs_template.json')
-        z_attrs = json.load(f_zattrs_template)
-        f_zattrs_template.close()
+        z_attrs = {"multiscales": [{}]}
 
-        junits = open('src/unit_names.json')
-        unit_names = json.load(junits)
-        junits.close()
-
-        units_list = []
-
-        for unit in zgroup.attrs['units']:
-            if unit in unit_names.keys():
-                units_list.append(unit_names[unit])
-            else:
-                units_list.append(unit)
+        # normalize input units, i.e. 'meter' or 'm'-> 'meter'
+        ureg = pint.UnitRegistry()
+        units_list = [ureg.Unit(unit) for unit in zgroup.attrs['units']]            
 
         #populate .zattrs
         z_attrs['multiscales'][0]['axes'] = [{"name": axis, 
@@ -170,5 +150,74 @@ class N5Group(Volume):
         self.normalize_groupspec(spec_n5_dict, comp)
         spec_n5 = pz.GroupSpec(**spec_n5_dict)
         return spec_n5.to_zarr(z_store, path= '')
+        
     
+    #creates attributes.json, if missing 
+    def reconstruct_json(self, n5src):
+        dir_list = os.listdir(n5src)
+        if "attributes.json" not in dir_list:
+            with open(os.path.join(n5src,"attributes.json"), "w") as jfile:
+                dict = {"n5": "2.0.0"}
+                jfile.write(json.dumps(dict, indent=4))
+        for obj in dir_list:
+            if os.path.isdir(os.path.join(n5src, obj)):
+                self.reconstruct_json(os.path.join(n5src, obj))
 
+    
+    
+    def save_chunk(
+        self,
+        source: zarr.Array, 
+        dest: zarr.Array, 
+        out_slices: Tuple[slice, ...],
+        invert: bool):
+    
+        in_slices = tuple(out_slice for out_slice in out_slices)
+        source_data = source[in_slices]
+        # only store source_data if it is not all 0s
+        if not (source_data == 0).all():
+            if invert == True:
+                dest[out_slices] = np.invert(source_data)
+            else:
+                dest[out_slices] = source_data
+        return 1
+        
+    def write_to_zarr(
+        self,
+        dest: str,
+        client: Client,
+        zarr_chunks : list[int],
+        comp : ABCMeta = Zstd(level=6),
+    ):
+        
+        logging.basicConfig(level=logging.INFO, 
+                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+        self.reconstruct_json(os.path.join(self.store_path, self.path))
+        
+        # input n5 arrays list to convert
+        n5_root = zarr.open_group(self.n5_store, mode = 'r')
+        zarr_arrays = [n5_root.arrays(recurse=True)]
+
+        # copy input n5 tree structure to output zarr and add ome-metadata, when N5 metadata is present
+        z_store = zarr.NestedDirectoryStore(dest)
+        zg = self.copy_n5_tree(n5_root, z_store, comp)
+
+        self.normalize_to_omengff(zg)
+        
+        for item in zarr_arrays:
+            n5arr = item[1]
+            dest_arr = zarr.open_array(os.path.join(dest, n5arr.path), mode='a')
+            
+            out_slices = slices_from_chunks(normalize_chunks(dest_arr.chunks, shape=dest_arr.shape))
+            # break the slices up into batches, to make things easier for the dask scheduler
+            out_slices_partitioned = tuple(partition_all(100000, out_slices))
+            
+            for idx, part in enumerate(out_slices_partitioned):
+                logging.info(f'{idx + 1} / {len(out_slices_partitioned)}')
+                start = time.time()
+                fut = client.map(lambda v: self.save_chunk(n5arr, dest_arr, v, invert=False), part)
+                logging.info(f'Submitted {len(part)} tasks to the scheduler in {time.time()- start}s')
+                # wait for all the futures to complete
+                result = wait(fut)
+                logging.info(f'Completed {len(part)} tasks in {time.time() - start}s')
