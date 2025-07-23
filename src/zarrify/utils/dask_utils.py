@@ -2,9 +2,10 @@ from dask_jobqueue import LSFCluster
 from dask.distributed import Client, LocalCluster
 import os
 import sys
+import logging
 
 
-def initialize_dask_client(cluster_type: str) -> Client:
+def initialize_dask_client(cluster_type: str | None = None) -> Client:
     """Initialize dask client.
 
     Args:
@@ -13,9 +14,8 @@ def initialize_dask_client(cluster_type: str) -> Client:
     Returns:
         (Client): instance of a dask client
     """
-    if cluster_type == "":
-        print("Did not specify which instance of the dask client to use!")
-        sys.exit(0)
+    if cluster_type == None:
+        raise ValueError("Cluster type must be specified")
     elif cluster_type == "lsf":
         num_cores = 1
         cluster = LSFCluster(
@@ -29,11 +29,13 @@ def initialize_dask_client(cluster_type: str) -> Client:
         )
     elif cluster_type == "local":
         cluster = LocalCluster()
+    else:
+        raise ValueError(f"Unsupported cluster type: {cluster_type}")
 
     client = Client(cluster)
     with open(
         os.path.join(os.getcwd(), "dask_dashboard_link" + ".txt"), "w"
     ) as text_file:
         text_file.write(str(client.dashboard_link))
-    print(client.dashboard_link)
+    logging.info(client.dashboard_link)
     return client

@@ -7,6 +7,9 @@ import time
 import dask.array as da
 import copy
 from zarrify.utils.volume import Volume
+from abc import ABCMeta
+from numcodecs import Zstd
+import logging
 
 
 class Tiff3D(Volume):
@@ -32,22 +35,29 @@ class Tiff3D(Volume):
         self.shape = self.zarr_arr.shape
         self.dtype = self.zarr_arr.dtype
 
-    def write_to_zarr(self, zarray: zarr.Group, client: Client):
-        chunks_list = np.arange(0, zarray.shape[0], zarray.chunks[0])
+    def write_to_zarr(self,
+        dest: str,
+        client: Client,
+        zarr_chunks : list[int],
+        comp : ABCMeta = Zstd(level=6),
+        ):
+        
+        z_arr = self.get_output_array(dest, zarr_chunks, comp)
+        chunks_list = np.arange(0, z_arr.shape[0], z_arr.chunks[0])
 
         src_path = copy.copy(self.src_path)
 
         start = time.time()
         fut = client.map(
-            lambda v: write_volume_slab_to_zarr(v, zarray, src_path), chunks_list
+            lambda v: write_volume_slab_to_zarr(v, z_arr, src_path), chunks_list
         )
-        print(
+        logging.info(
             f"Submitted {len(chunks_list)} tasks to the scheduler in {time.time()- start}s"
         )
 
         # wait for all the futures to complete
         result = wait(fut)
-        print(f"Completed {len(chunks_list)} tasks in {time.time() - start}s")
+        logging.info(f"Completed {len(chunks_list)} tasks in {time.time() - start}s")
 
         return 0
 

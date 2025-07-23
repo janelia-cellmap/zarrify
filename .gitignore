@@ -4,3 +4,6 @@ dask_dashboard_link.txt
 poetry.lock
 dist/
 .zarrify_venv
+.python-version
+*.egg-info/
+build/

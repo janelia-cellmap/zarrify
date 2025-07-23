@@ -1,4 +1,5 @@
 import zarr
+from abc import ABCMeta
 
 
 class Volume:
@@ -18,6 +19,18 @@ class Volume:
             "scale": scale,
             "units": units,
         }
+        
+    def get_output_array(self, dest: str, chunks: list[int], comp: ABCMeta) -> zarr.Array:
+        z_store = zarr.NestedDirectoryStore(dest)
+        z_root = zarr.open(store=z_store, mode="a")
+        
+        return z_root.require_dataset(
+            name="s0",
+            shape=self.shape,
+            dtype=self.dtype,
+            chunks=chunks,
+            compressor=comp,
+        )
 
     def add_ome_metadata(self, dest: str):
         """Add selected tiff metadata to zarr attributes file (.zattrs).

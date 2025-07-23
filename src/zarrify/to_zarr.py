@@ -8,7 +8,7 @@ import time
 from zarrify.formats.tiff_stack import TiffStack
 from zarrify.formats.tiff import Tiff3D
 from zarrify.formats.mrc import Mrc3D
-from zarrify.formats.n5 import N53D
+from zarrify.formats.n5 import N5Group
 from zarrify.utils.dask_utils import initialize_dask_client
 from typing import Union
 
@@ -17,8 +17,8 @@ def init_dataset(src :str,
                  axes : list[str],
                  scale : list[float],
                  translation : list[float],
-                 units : list[str]) -> Union[TiffStack, Tiff3D, N53D, Mrc3D]:
-    """Returns an instance of a dataset class (TiffStack, N53D, Mrc3D, or Tiff3D), depending on the input file format.
+                 units : list[str]) -> Union[TiffStack, Tiff3D, N5Group, Mrc3D]:
+    """Returns an instance of a dataset class (TiffStack, N5Group, Mrc3D, or Tiff3D), depending on the input file format.
 
     Args:
         src (str): source file/container location
@@ -31,7 +31,7 @@ def init_dataset(src :str,
         ValueError: return value error if the input file format not in the list.
 
     Returns:
-        Union[TiffStack, Tiff3D, N53D, Mrc3D]: return a file format object depending on the input file format. 
+        Union[TiffStack, Tiff3D, N5Group, Mrc3D]: return a file format object depending on the input file format. 
         \n All different file formats objects have identical instance methods (write_to_zarr, add_ome_metadata) to emulate API abstraction. 
     """
     
@@ -44,7 +44,7 @@ def init_dataset(src :str,
     ext = src_path.suffix.lower()
     
     if '.n5' in src_path.name:
-        return N53D(*params)
+        return N5Group(*params)
     elif ext == ".mrc":
         return Mrc3D(*params)
     elif ext in (".tif", ".tiff"):
@@ -99,7 +99,7 @@ def to_zarr(src : str,
 @click.option(
     "--cluster",
     "-c",
-    default="",
+    default=None,
     type=click.STRING,
     help="Which instance of dask client to use. Local client - 'local', cluster 'lsf'",
 )

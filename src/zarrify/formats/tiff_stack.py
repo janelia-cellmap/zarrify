@@ -8,6 +8,9 @@ import dask.array as da
 from natsort import natsorted
 from glob import glob
 from zarrify.utils.volume import Volume
+from abc import ABCMeta
+from numcodecs import Zstd
+import logging
 
 
 class TiffStack(Volume):
@@ -54,7 +57,7 @@ class TiffStack(Volume):
             try:
                 image_tile = imread(src_volume[slab_index])
             except:
-                print(
+                logging.info(
                     f"Tiff tile with index {slab_index} is not present in tiff stack."
                 )
             np_slab[slab_index - chunk_num, :, :] = image_tile
@@ -63,20 +66,27 @@ class TiffStack(Volume):
         zarray[chunk_num : chunk_num + zarray.chunks[0], :, :] = np_slab
 
     # parallel writing of tiff stack into zarr array
-    def write_to_zarr(self, zarray: zarr.Array, client: Client):
-        chunks_list = np.arange(0, zarray.shape[0], zarray.chunks[0])
+    def write_to_zarr(self,
+        dest: str,
+        client: Client,
+        zarr_chunks : list[int],
+        comp : ABCMeta = Zstd(level=6),
+        ):
+        
+        z_arr = self.get_output_array(dest, zarr_chunks, comp)
+        chunks_list = np.arange(0, z_arr.shape[0], z_arr.chunks[0])
 
         start = time.time()
         fut = client.map(
-            lambda v: self.write_tile_slab_to_zarr(v, zarray, self.stack_list),
+            lambda v: self.write_tile_slab_to_zarr(v, z_arr, self.stack_list),
             chunks_list,
         )
-        print(
+        logging.info(
             f"Submitted {len(chunks_list)} tasks to the scheduler in {time.time()- start}s"
         )
 
         # wait for all the futures to complete
         result = wait(fut)
-        print(f"Completed {len(chunks_list)} tasks in {time.time() - start}s")
+        logging.info(f"Completed {len(chunks_list)} tasks in {time.time() - start}s")
 
         return 0
