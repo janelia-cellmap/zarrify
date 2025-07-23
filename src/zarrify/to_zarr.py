@@ -38,13 +38,13 @@ def init_dataset(src :str,
     src_path = Path(src)
     params = (src, axes, scale, translation, units)
 
-    if src_path.is_dir():
-        return TiffStack(*params)
     
     ext = src_path.suffix.lower()
-    
-    if '.n5' in src_path.name:
+
+    if ext=='.n5':
         return N5Group(*params)
+    elif src_path.is_dir():
+        return TiffStack(*params)
     elif ext == ".mrc":
         return Mrc3D(*params)
     elif ext in (".tif", ".tiff"):
@@ -92,7 +92,7 @@ def to_zarr(src : str,
     type=click.Path(exists=True),
     help="Input file/directory location",
 )
-@click.option("--dest", "-s", type=click.STRING, help="Output .zarr file path.")
+@click.option("--dest", "-d", type=click.STRING, help="Output .zarr file path.")
 @click.option(
     "--num_workers", "-w", default=100, type=click.INT, help="Number of dask workers"
 )
@@ -129,11 +129,11 @@ def to_zarr(src : str,
 )
 @click.option(
     "--scale",
-    "-s",
+    "-sc",
     nargs=3,
     default=(1.0, 1.0, 1.0),
     type=float,
-    help="Metadata scale value. Order matters. \n Example: -s 1.0 2.0 3.0",
+    help="Metadata scale value. Order matters. \n Example: --scale 1.0 2.0 3.0",
 )
 @click.option(
     "--units",

@@ -33,6 +33,7 @@ def initialize_dask_client(cluster_type: str | None = None) -> Client:
         raise ValueError(f"Unsupported cluster type: {cluster_type}")
 
     client = Client(cluster)
+    print(str(client.dashboard_link))
     with open(
         os.path.join(os.getcwd(), "dask_dashboard_link" + ".txt"), "w"
     ) as text_file:
