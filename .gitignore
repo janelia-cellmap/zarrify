@@ -3,3 +3,4 @@ __pycache__/
 dask_dashboard_link.txt
 poetry.lock
 dist/
+.zarrify_venv
