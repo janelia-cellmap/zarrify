@@ -3,28 +3,33 @@ name = "zarrify"
 version = "0.0.3"
 description = ""
 authors = [
-    {name = "Yurii Zubov",email = "zubov452@gmail.com"}
+    { name = "Yurii Zubov", email = "zubov452@gmail.com" }
 ]
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "zarr (==2.18.3)",
-    "mrcfile (>=1.5.3,<2.0.0)",
-    "dask-jobqueue (==0.8.2)",
-    "colorama (>=0.4.6,<0.5.0)",
-    "imagecodecs (>=2024.12.30,<2025.0.0)",
-    "dask (>=2024.12.1,<2025.0.0)",
-    "tifffile (>=2025.1.10,<2026.0.0)",
-    "natsort (>=8.4.0,<9.0.0)",
-    "click (>=8.1.8,<9.0.0)"
-]
 
-[project.optional-dependencies]
-test = ["pytest"]
+dependencies = [
+    "click>=8.1.8,<9.0.0",
+    "colorama>=0.4.6,<0.5.0",
+    "dask>=2024.12.1,<2025.0.0",
+    "dask-jobqueue==0.8.2",
+    "imagecodecs>=2024.12.30,<2025.0.0",
+    "mrcfile>=1.5.3,<2.0.0",
+    "natsort>=8.4.0,<9.0.0",
+    "tifffile>=2025.1.10,<2026.0.0",
+    "zarr==2.16.1"
+]
 
 [project.scripts]
 zarrify = "zarrify.to_zarr:cli"
 
+[project.optional-dependencies]
+test = [
+    "pytest"
+]
+
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
+requires = [
+    "poetry-core>=2.0.0,<3.0.0"
+]
 build-backend = "poetry.core.masonry.api"
