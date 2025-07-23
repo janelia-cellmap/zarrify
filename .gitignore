@@ -5,3 +5,5 @@ poetry.lock
 dist/
 .zarrify_venv
 .python-version
+*.egg-info/
+build/
