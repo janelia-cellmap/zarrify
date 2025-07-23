@@ -11,7 +11,7 @@ from dask.array.core import slices_from_chunks, normalize_chunks
 from toolz import partition_all
 from dask.distributed import Client, wait
 from typing import Tuple
-from time import time
+import time
 import numpy as np
 import logging 
 import pint
@@ -38,11 +38,6 @@ class N5Group(Volume):
         self.n5_store = zarr.N5Store(self.store_path)
         
         self.n5_obj = zarr.open(store = self.n5_store, path=self.path, mode='r')
-
-        self.shape = self.n5_arr.shape
-        self.dtype = self.n5_arr.dtype
-        self.chunks = self.n5_arr.chunks
-        self.compressor = self.n5_arr.compressor
 
     def separate_store_path(self,
                             store : str,
@@ -197,8 +192,7 @@ class N5Group(Volume):
         
         # input n5 arrays list to convert
         n5_root = zarr.open_group(self.n5_store, mode = 'r')
-        zarr_arrays = [n5_root.arrays(recurse=True)]
-
+        zarr_arrays = n5_root.arrays(recurse=True)
         # copy input n5 tree structure to output zarr and add ome-metadata, when N5 metadata is present
         z_store = zarr.NestedDirectoryStore(dest)
         zg = self.copy_n5_tree(n5_root, z_store, comp)
