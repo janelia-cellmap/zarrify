@@ -1,12 +1,13 @@
 [project]
 name = "zarrify"
-version = "0.0.4"
+version = "0.0.8"
 description = "Convert scientific image formats (TIFF, MRC, N5) to OME-Zarr"
 authors = [
     { name = "Yurii Zubov", email = "zubov452@gmail.com" }
 ]
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
 keywords = ["zarr", "ome-zarr", "tiff", "mrc", "n5", "scientific-imaging"]
 classifiers = [
     "Intended Audience :: Science/Research",
