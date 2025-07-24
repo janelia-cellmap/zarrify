@@ -31,6 +31,10 @@ class Volume:
             chunks=chunks,
             compressor=comp,
         )
+        
+    def reshape_to_arr_shape(self, param_arr, ref_arr):
+        from itertools import cycle, islice
+        return list(islice(cycle(param_arr), len(ref_arr)))
 
     def add_ome_metadata(self, dest: str):
         """Add selected tiff metadata to zarr attributes file (.zattrs).

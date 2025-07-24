@@ -37,7 +37,14 @@ class TiffStack(Volume):
         probe_image_arr = da.from_zarr(probe_image_store)
 
         self.dtype = probe_image_arr.dtype
-        self.shape = [len(self.stack_list)] + list(probe_image_arr.shape)
+        self.shape = np.squeeze([len(self.stack_list)] + list(probe_image_arr.shape))
+        self.ndim = len(self.shape)
+        
+        # Scale metadata parameters to match data dimensionality
+        self.metadata["axes"] = self.metadata["axes"][-self.ndim:]
+        self.metadata["scale"] = self.metadata["scale"][-self.ndim:]
+        self.metadata["translation"] = self.metadata["translation"][-self.ndim:]
+        self.metadata["units"] = self.metadata["units"][-self.ndim:]
 
     def write_tile_slab_to_zarr(
         self, chunk_num: int, zarray: zarr.Array, src_volume: list
@@ -72,6 +79,10 @@ class TiffStack(Volume):
         zarr_chunks : list[int],
         comp : ABCMeta = Zstd(level=6),
         ):
+        
+        # reshape chunk shape to align with arr shape
+        if len(zarr_chunks) != len(self.shape):
+           zarr_chunks = self.reshape_to_arr_shape(zarr_chunks, self.shape)
         
         z_arr = self.get_output_array(dest, zarr_chunks, comp)
         chunks_list = np.arange(0, z_arr.shape[0], z_arr.chunks[0])
