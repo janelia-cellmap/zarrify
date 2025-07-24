@@ -7,3 +7,4 @@ dist/
 .python-version
 *.egg-info/
 build/
+.vscode/
