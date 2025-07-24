@@ -11,6 +11,7 @@ from abc import ABCMeta
 from numcodecs import Zstd
 import logging
 import copy
+import numpy as np
 
 class Mrc3D(Volume):
 
@@ -31,8 +32,14 @@ class Mrc3D(Volume):
 
         self.memmap = mrcfile.mmap(self.src_path, mode="r")
         self.ndim = self.memmap.data.ndim
-        self.shape = self.memmap.data.shape
+        self.shape = np.squeeze(self.memmap.data.shape)
         self.dtype = self.memmap.data.dtype
+        
+        # Scale metadata parameters to match data dimensionality
+        self.metadata["axes"] = self.metadata["axes"][-self.ndim:]
+        self.metadata["scale"] = self.metadata["scale"][-self.ndim:]
+        self.metadata["translation"] = self.metadata["translation"][-self.ndim:]
+        self.metadata["units"] = self.metadata["units"][-self.ndim:]
 
 
     def write_to_zarr(
@@ -53,6 +60,10 @@ class Mrc3D(Volume):
                          format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
         src_path = copy.copy(self.src_path)
+        
+        if len(zarr_chunks) != len(self.shape):
+           zarr_chunks = self.reshape_to_arr_shape(zarr_chunks, self.shape)
+        
         z_arr = self.get_output_array(dest, zarr_chunks, comp)
         
         out_slices = slices_from_chunks(

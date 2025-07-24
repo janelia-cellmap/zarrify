@@ -34,6 +34,13 @@ class Tiff3D(Volume):
 
         self.shape = self.zarr_arr.shape
         self.dtype = self.zarr_arr.dtype
+        self.ndim = self.zarr_arr.ndim
+        
+        # Scale metadata parameters to match data dimensionality
+        self.metadata["axes"] = self.metadata["axes"][-self.ndim:]
+        self.metadata["scale"] = self.metadata["scale"][-self.ndim:]
+        self.metadata["translation"] = self.metadata["translation"][-self.ndim:]
+        self.metadata["units"] = self.metadata["units"][-self.ndim:]
 
     def write_to_zarr(self,
         dest: str,
@@ -42,6 +49,10 @@ class Tiff3D(Volume):
         comp : ABCMeta = Zstd(level=6),
         ):
         
+        # reshape chunk shape to align with arr shape
+        if len(zarr_chunks) != self.shape:
+           zarr_chunks = self.reshape_to_arr_shape(zarr_chunks, self.shape)
+             
         z_arr = self.get_output_array(dest, zarr_chunks, comp)
         chunks_list = np.arange(0, z_arr.shape[0], z_arr.chunks[0])
 
