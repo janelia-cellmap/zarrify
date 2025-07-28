@@ -38,13 +38,6 @@ class TiffStack(Volume):
 
         self.dtype = probe_image_arr.dtype
         self.shape = np.squeeze([len(self.stack_list)] + list(probe_image_arr.shape))
-        self.ndim = len(self.shape)
-        
-        # Scale metadata parameters to match data dimensionality
-        self.metadata["axes"] = self.metadata["axes"][-self.ndim:]
-        self.metadata["scale"] = self.metadata["scale"][-self.ndim:]
-        self.metadata["translation"] = self.metadata["translation"][-self.ndim:]
-        self.metadata["units"] = self.metadata["units"][-self.ndim:]
 
     def write_tile_slab_to_zarr(
         self, chunk_num: int, zarray: zarr.Array, src_volume: list
