@@ -34,12 +34,6 @@ class Mrc3D(Volume):
         self.ndim = self.memmap.data.ndim
         self.shape = np.squeeze(self.memmap.data.shape)
         self.dtype = self.memmap.data.dtype
-        
-        # Scale metadata parameters to match data dimensionality
-        self.metadata["axes"] = self.metadata["axes"][-self.ndim:]
-        self.metadata["scale"] = self.metadata["scale"][-self.ndim:]
-        self.metadata["translation"] = self.metadata["translation"][-self.ndim:]
-        self.metadata["units"] = self.metadata["units"][-self.ndim:]
 
 
     def write_to_zarr(
