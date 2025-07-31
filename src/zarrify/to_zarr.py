@@ -55,7 +55,7 @@ def init_dataset(src :str,
 def to_zarr(src : str,
             dest: str,
             client : Client,
-            num_workers : int = 20,
+            workers : int = 20,
             zarr_chunks : list[int] = [128]*3,
             axes : list[str] = ['z', 'y', 'x'], 
             scale : list[float] = [1.0,]*3,
@@ -67,7 +67,7 @@ def to_zarr(src : str,
         src (str): input data location.
         dest (str): output zarr group location.
         client (Client): dask client instance.
-        num_workers (int, optional): Number of dask workers. Defaults to 20.
+        workers (int, optional): Number of dask workers. Defaults to 20.
         zarr_chunks (list[int], optional): _description_. Defaults to [128,]*3.
         axes (list[str], optional): axis order. Defaults to ['z', 'y', 'x'].
         scale (list[float], optional): voxel size (in physical units). Defaults to [1.0,]*3.
@@ -78,7 +78,7 @@ def to_zarr(src : str,
     dataset = init_dataset(src, axes, scale, translation, units)
 
     # write in parallel to zarr using dask
-    client.cluster.scale(num_workers)
+    client.cluster.scale(workers)
     dataset.write_to_zarr(dest, client, zarr_chunks)
     client.cluster.scale(0)
     # populate zarr metadata
@@ -94,7 +94,7 @@ def to_zarr(src : str,
 )
 @click.option("--dest", "-d", type=click.STRING, help="Output .zarr file path.")
 @click.option(
-    "--num_workers", "-w", default=100, type=click.INT, help="Number of dask workers"
+    "--workers", "-w", default=100, type=click.INT, help="Number of dask workers"
 )
 @click.option(
     "--cluster",
@@ -143,7 +143,7 @@ def to_zarr(src : str,
     type=str,
     help="Metadata unit names. Order matters. \n Example: -t nanometer nanometer nanometer",
 )
-def cli(src, dest, num_workers, cluster, zarr_chunks, axes, translation, scale, units):
+def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units):
 
     # create a dask client to submit tasks
     client = initialize_dask_client(cluster)
@@ -152,7 +152,7 @@ def cli(src, dest, num_workers, cluster, zarr_chunks, axes, translation, scale, 
     to_zarr(src,
             dest,
             client,
-            num_workers,
+            workers,
             zarr_chunks,
             axes, 
             scale,
