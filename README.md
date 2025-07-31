@@ -22,7 +22,7 @@ bsub -n 1 -J to_zarr 'zarrify --src input.tiff --dest output.zarr --cluster lsf 
 
 ## Python API
 
-Integrating conversion to zarr into python script
+Integrating conversion to zarr into the python code
 
 ```python
 import zarrify
