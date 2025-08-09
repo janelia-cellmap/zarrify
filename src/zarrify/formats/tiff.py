@@ -4,15 +4,16 @@ import zarr
 import os
 from dask.distributed import Client, wait
 import time
-import dask.array as da
 import copy
 from zarrify.utils.volume import Volume
 from abc import ABCMeta
 from numcodecs import Zstd
 import logging
+from dask.array.core import slices_from_chunks, normalize_chunks
 
 
-class Tiff3D(Volume):
+
+class Tiff(Volume):
 
     def __init__(
         self,
@@ -37,7 +38,7 @@ class Tiff3D(Volume):
         self.ndim = self.zarr_arr.ndim
         
         # Scale metadata parameters to match data dimensionality
-        self.metadata["axes"] = self.metadata["axes"][-self.ndim:]
+        self.metadata["axes"] = list(self.metadata["axes"])[-self.ndim:]
         self.metadata["scale"] = self.metadata["scale"][-self.ndim:]
         self.metadata["translation"] = self.metadata["translation"][-self.ndim:]
         self.metadata["units"] = self.metadata["units"][-self.ndim:]
@@ -50,40 +51,43 @@ class Tiff3D(Volume):
         ):
         
         # reshape chunk shape to align with arr shape
-        if len(zarr_chunks) != self.shape:
+        if len(zarr_chunks) != len(self.shape):
            zarr_chunks = self.reshape_to_arr_shape(zarr_chunks, self.shape)
-             
-        z_arr = self.get_output_array(dest, zarr_chunks, comp)
-        chunks_list = np.arange(0, z_arr.shape[0], z_arr.chunks[0])
 
+        slab_axis = 0 if len(self.shape) < 4 else 1
+            
+        z_arr = self.get_output_array(dest, zarr_chunks, comp)
+        
+        #slicing
+        #(c, z, y, x) or (z, y, x) - combine (c, z) from zarr_chunks and (y, x) from tiff chunking
+        slice_chunks = list(zarr_chunks[:slab_axis+1]).copy()
+        slice_chunks.extend(self.zarr_arr.chunks[slab_axis+1:])
+        print(slice_chunks)
+        
+        normalized_chunks = normalize_chunks(slice_chunks, shape=self.zarr_arr.shape)
+        slice_tuples = slices_from_chunks(normalized_chunks)
+
+        
+        
         src_path = copy.copy(self.src_path)
 
         start = time.time()
         fut = client.map(
-            lambda v: write_volume_slab_to_zarr(v, z_arr, src_path), chunks_list
+            lambda v: write_volume_slab_to_zarr(v, z_arr, src_path), slice_tuples
         )
         logging.info(
-            f"Submitted {len(chunks_list)} tasks to the scheduler in {time.time()- start}s"
+            f"Submitted {len(slice_tuples)} tasks to the scheduler in {time.time()- start}s"
         )
 
         # wait for all the futures to complete
         result = wait(fut)
-        logging.info(f"Completed {len(chunks_list)} tasks in {time.time() - start}s")
+        logging.info(f"Completed {len(slice_tuples)} tasks in {time.time() - start}s")
 
         return 0
 
 
-def write_volume_slab_to_zarr(chunk_num: int, zarray: zarr.Array, src_path: str):
-
-    # check if the slab is at the array boundary or not
-    if chunk_num + zarray.chunks[0] > zarray.shape[0]:
-        slab_thickness = zarray.shape[0] - chunk_num
-    else:
-        slab_thickness = zarray.chunks[0]
+def write_volume_slab_to_zarr(slice: slice, zarray: zarr.Array, src_path: str):
 
     tiff_store = imread(src_path, aszarr=True)
-    src_zarr_arr = zarr.open(tiff_store, mode = 'r')
-    tiff_slab = src_zarr_arr[chunk_num:chunk_num + slab_thickness, :, :]
-
-    # write a tiff stack slab into zarr array
-    zarray[chunk_num : chunk_num + slab_thickness, :, :] = tiff_slab
+    src_tiff_arr = zarr.open(tiff_store, mode='r')
+    zarray[slice] = src_tiff_arr[slice]
