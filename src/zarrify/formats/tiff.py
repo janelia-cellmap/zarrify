@@ -81,11 +81,9 @@ def write_volume_slab_to_zarr(chunk_num: int, zarray: zarr.Array, src_path: str)
     else:
         slab_thickness = zarray.chunks[0]
 
-    slab_shape = [slab_thickness] + list(zarray.shape[-2:])
-    np_slab = np.empty(slab_shape, zarray.dtype)
-
-    tiff_slab = imread(src_path, key=range(chunk_num, chunk_num + slab_thickness, 1))
-    np_slab[0 : zarray.chunks[0], :, :] = tiff_slab
+    tiff_store = imread(src_path, aszarr=True)
+    src_zarr_arr = zarr.open(tiff_store, mode = 'r')
+    tiff_slab = src_zarr_arr[chunk_num:chunk_num + slab_thickness, :, :]
 
     # write a tiff stack slab into zarr array
-    zarray[chunk_num : chunk_num + zarray.chunks[0], :, :] = np_slab
+    zarray[chunk_num : chunk_num + slab_thickness, :, :] = tiff_slab
