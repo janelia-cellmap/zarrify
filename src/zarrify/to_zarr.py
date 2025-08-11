@@ -142,9 +142,11 @@ def to_zarr(src : str,
     type=str,
     help="Metadata unit names. Order matters. \n Example: -t nanometer nanometer nanometer",
 )
-def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units):
+@click.option('--log_dir', default = None, type=click.STRING,
+    help="The path of the parent directory for all LSF worker logs.  Omit if you want worker logs to be emailed to you.")
+def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir):
     # create a dask client to submit tasks
-    client = initialize_dask_client(cluster)
+    client = initialize_dask_client(cluster, log_dir)
     
     # convert src dataset(n5, tiff, mrc) to zarr ome dataset 
     to_zarr(src,
