@@ -5,7 +5,7 @@ import sys
 import logging
 
 
-def initialize_dask_client(cluster_type: str | None = None) -> Client:
+def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None) -> Client:
     """Initialize dask client.
 
     Args:
@@ -25,6 +25,7 @@ def initialize_dask_client(cluster_type: str | None = None) -> Client:
             ncpus=num_cores,
             mem=15 * num_cores,
             walltime="48:00",
+            log_directory = log_dir,
             local_directory="/scratch/$USER/",
         )
     elif cluster_type == "local":

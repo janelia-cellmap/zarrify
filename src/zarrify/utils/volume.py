@@ -42,15 +42,16 @@ class Volume:
         Args:
             root (zarr.Group): root group of the output zarr array
         """
+        print(self.metadata['axes'])
         root = zarr.open(dest, mode = 'a')
         # json template for a multiscale structure
         z_attrs: dict = {"multiscales": [{}]}
         z_attrs["multiscales"][0]["axes"] = [
             {"name": axis, "type": "space", "unit": unit}
-            for axis, unit in zip(self.metadata["axes"], self.metadata["units"])
+            for axis, unit in zip(list(self.metadata["axes"]), self.metadata["units"])
         ]
         z_attrs["multiscales"][0]["coordinateTransformations"] = [
-            {"scale": [1.0, 1.0, 1.0], "type": "scale"}
+            {"scale": [1.0]*len(self.metadata['axes']), "type": "scale"}
         ]
         z_attrs["multiscales"][0]["datasets"] = [
             {
