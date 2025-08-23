@@ -6,7 +6,7 @@ authors = [
     { name = "Yurii Zubov", email = "zubov452@gmail.com" }
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 keywords = ["zarr", "ome-zarr", "tiff", "mrc", "n5", "scientific-imaging"]
 classifiers = [
@@ -26,11 +26,11 @@ dependencies = [
     "imagecodecs>=2024.12.30,<2025.0.0",
     "mrcfile>=1.5.3,<2.0.0",
     "natsort>=8.4.0,<9.0.0",
-    "numcodecs>=0.13.0,<0.16",
+    "numcodecs==0.15.1",
     "pydantic-zarr>=0.4.0,<0.5.0",
     "pint>=0.20.0,<1.0.0",
     "tifffile>=2024.1.0,<2025.5.10",
-    "zarr==2.18.3",
+    "zarr>=2.18.3",
     "bokeh>=3.1.0"
 ]
 
@@ -42,7 +42,24 @@ test = [
     "pytest"
 ]
 
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
 
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+[tool.pixi.tasks]
+dev-install = "pip install -e ."
+test = "pytest"
+clean = "rm -rf build/ dist/ *.egg-info/ .pytest_cache/ __pycache__/ dask_dashboard_link.txt"
+
+[tool.pixi.feature.test.tasks]
+test-install = "pip install -e ."
+test = { cmd = "pytest", depends-on = ["test-install"] }
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+test = { features = ["test"], solve-group = "default" }
+
+[tool.pixi.dependencies]
+python = "3.12.*"
+pip = ">=25.2,<26"
+
