@@ -5,11 +5,13 @@ import sys
 import logging
 
 
-def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None) -> Client:
+def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None, job_extra_directives: tuple[str, ...] = None) -> Client:
     """Initialize dask client.
 
     Args:
         cluster_type (str): type of the cluster, either local or lsf
+        log_dir (str): directory for LSF worker logs
+        job_extra_directives (tuple[str, ...]): additional LSF job directives
 
     Returns:
         (Client): instance of a dask client
@@ -18,6 +20,12 @@ def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None)
         raise ValueError("Cluster type must be specified")
     elif cluster_type == "lsf":
         num_cores = 1
+        # Use provided job_extra_directives or default to ["-P scicompsoft"]
+        if job_extra_directives is None:
+            job_extra_directives = ["-P scicompsoft"]
+        else:
+            job_extra_directives = list(job_extra_directives)
+        
         cluster = LSFCluster(
             cores=num_cores,
             processes=num_cores,
@@ -27,6 +35,7 @@ def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None)
             walltime="48:00",
             log_directory = log_dir,
             local_directory="/scratch/$USER/",
+            job_extra_directives=job_extra_directives
         )
     elif cluster_type == "local":
         cluster = LocalCluster()
