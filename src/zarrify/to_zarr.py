@@ -9,8 +9,7 @@ from zarrify.formats.tiff_stack import TiffStack
 from zarrify.formats.tiff import Tiff
 from zarrify.formats.mrc import Mrc3D
 from zarrify.formats.n5 import N5Group
-from zarrify.utils.dask_utils import initialize_dask_client
-from zarrify.utils.zarr_factory import create_output_array
+from zarrify.utils.dask_utils import initialize_dask_client, create_output_array
 from typing import Union
 
 
