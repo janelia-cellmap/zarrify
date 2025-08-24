@@ -38,10 +38,8 @@ class Mrc3D(Volume):
 
     def write_to_zarr(
         self,
-        dest: str,
+        zarr_array: zarr.Array,
         client: Client,
-        zarr_chunks : list[int],
-        comp : ABCMeta = Zstd(level=6),
     ):
         """Use mrcfile memmap to access small parts of the mrc file and write them into zarr chunks.
 
@@ -55,10 +53,7 @@ class Mrc3D(Volume):
 
         src_path = copy.copy(self.src_path)
         
-        if len(zarr_chunks) != len(self.shape):
-           zarr_chunks = self.reshape_to_arr_shape(zarr_chunks, self.shape)
-        
-        z_arr = self.get_output_array(dest, zarr_chunks, comp)
+        z_arr = zarr_array
         
         out_slices = slices_from_chunks(
             normalize_chunks(z_arr.chunks, shape=z_arr.shape)

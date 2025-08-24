@@ -10,6 +10,7 @@ from zarrify.formats.tiff import Tiff
 from zarrify.formats.mrc import Mrc3D
 from zarrify.formats.n5 import N5Group
 from zarrify.utils.dask_utils import initialize_dask_client
+from zarrify.utils.zarr_factory import create_output_array
 from typing import Union
 
 
@@ -75,11 +76,26 @@ def to_zarr(src : str,
     """
     
     dataset = init_dataset(src, axes, scale, translation, units)
-
-    # write in parallel to zarr using dask
-    client.cluster.scale(workers)
-    dataset.write_to_zarr(dest, client, zarr_chunks)
-    client.cluster.scale(0)
+    
+    # Handle N5Group separately as it has custom zarr creation logic
+    if isinstance(dataset, N5Group):
+        # N5 handles zarr creation internally due to tree structure complexity
+        client.cluster.scale(workers)
+        dataset.write_to_zarr(dest, client, zarr_chunks)
+        client.cluster.scale(0)
+    else:
+        # Reshape chunks to match data dimensionality
+        if len(zarr_chunks) != len(dataset.shape):
+            zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
+        
+        # Create zarr array externally
+        zarr_array = create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
+        
+        # Write data using new signature
+        client.cluster.scale(workers)
+        dataset.write_to_zarr(zarr_array, client)
+        client.cluster.scale(0)
+    
     # populate zarr metadata
     dataset.add_ome_metadata(dest)
 

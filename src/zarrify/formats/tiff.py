@@ -44,23 +44,17 @@ class Tiff(Volume):
         self.metadata["units"] = self.metadata["units"][-self.ndim:]
 
     def write_to_zarr(self,
-        dest: str,
+        zarr_array: zarr.Array,
         client: Client,
-        zarr_chunks : list[int],
-        comp : ABCMeta = Zstd(level=6),
         ):
         
-        # reshape chunk shape to align with arr shape
-        if len(zarr_chunks) != len(self.shape):
-           zarr_chunks = self.reshape_to_arr_shape(zarr_chunks, self.shape)
-
         slab_axis = 0 if len(self.shape) < 4 else 1
             
-        z_arr = self.get_output_array(dest, zarr_chunks, comp)
+        z_arr = zarr_array
         
         #slicing
         #(c, z, y, x) or (z, y, x) - combine (c, z) from zarr_chunks and (y, x) from tiff chunking
-        slice_chunks = list(zarr_chunks[:slab_axis+1]).copy()
+        slice_chunks = list(z_arr.chunks[:slab_axis+1]).copy()
         slice_chunks.extend(self.zarr_arr.chunks[slab_axis+1:])
         print(slice_chunks)
         
