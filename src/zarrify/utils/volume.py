@@ -40,7 +40,7 @@ class Volume:
         """Add selected tiff metadata to zarr attributes file (.zattrs).
 
         Args:
-            root (zarr.Group): root group of the output zarr array
+            dest (str): path to the output zarr
         """
         print(self.metadata['axes'])
         root = zarr.open(dest, mode = 'a')

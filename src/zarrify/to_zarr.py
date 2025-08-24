@@ -56,10 +56,10 @@ def to_zarr(src : str,
             client : Client,
             workers : int = 20,
             zarr_chunks : list[int] = [3, 128, 128, 128],
-            axes : list[str] = ['c','z', 'y', 'x'], 
+            axes : list[str] = ['c', 'z', 'y', 'x'],
             scale : list[float] = [1.0,]*4,
             translation : list[float] = [0.0,]*4,
-            units: list[str] = ['nanometer',]*4):
+            units: list[str] = ['']+['nanometer',]*3):
     """Convert Tiff stack, 3D Tiff, N5, or MRC file to OME-Zarr.
 
     Args:
@@ -67,11 +67,11 @@ def to_zarr(src : str,
         dest (str): output zarr group location.
         client (Client): dask client instance.
         workers (int, optional): Number of dask workers. Defaults to 20.
-        zarr_chunks (list[int], optional): _description_. Defaults to [128,]*3.
-        axes (list[str], optional): axis order. Defaults to ['z', 'y', 'x'].
-        scale (list[float], optional): voxel size (in physical units). Defaults to [1.0,]*3.
-        translation (list[float], optional): offset (in physical units). Defaults to [0.0,]*3.
-        units (list[str], optional): physical units. Defaults to ['nanometer']*3.
+        zarr_chunks (list[int], optional): _description_. Defaults to [128,]*4.
+        axes (list[str], optional): axis order. Defaults to ['c', 'z', 'y', 'x'].
+        scale (list[float], optional): voxel size (in physical units). Defaults to [1.0,]*4.
+        translation (list[float], optional): offset (in physical units). Defaults to [0.0,]*4.
+        units (list[str], optional): physical units. Defaults to ['']+['nanometer']*3.
     """
     
     dataset = init_dataset(src, axes, scale, translation, units)
@@ -138,9 +138,9 @@ def to_zarr(src : str,
     "--units",
     "-u",
     nargs=4,
-    default=("nanometer", "nanometer", "nanometer", "nanometer"),
+    default=("", "nanometer", "nanometer", "nanometer"),
     type=str,
-    help="Metadata unit names. Order matters. \n Example: -t nanometer nanometer nanometer",
+    help="Metadata unit names. Order matters. \n Example: -u nanometer nanometer nanometer",
 )
 @click.option('--log_dir', default = None, type=click.STRING,
     help="The path of the parent directory for all LSF worker logs.  Omit if you want worker logs to be emailed to you.")
