@@ -1,12 +1,12 @@
 [project]
 name = "zarrify"
-version = "0.0.8"
+version = "0.1.0"
 description = "Convert scientific image formats (TIFF, MRC, N5) to OME-Zarr"
 authors = [
     { name = "Yurii Zubov", email = "zubov452@gmail.com" }
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 keywords = ["zarr", "ome-zarr", "tiff", "mrc", "n5", "scientific-imaging"]
 classifiers = [
@@ -17,32 +17,55 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Image Processing",
 ]
-
 dependencies = [
+    "bokeh>=3.3.2",
     "click>=8.1.8,<9.0.0",
-    "colorama>=0.4.6,<0.5.0",
+    "colorama>=0.4.6,<0.5.0", 
     "dask>=2024.12.1,<2025.0.0",
     "dask-jobqueue==0.8.2",
     "imagecodecs>=2024.12.30,<2025.0.0",
     "mrcfile>=1.5.3,<2.0.0",
     "natsort>=8.4.0,<9.0.0",
-    "numcodecs>=0.13.0,<0.16",
-    "pydantic-zarr>=0.4.0,<0.5.0",
+    "numcodecs>=0.15.1,<0.16.1",
+    "numpy>=1.26.2",
+    "pydantic>=2.11.7,<3",
+    "pydantic-zarr>=0.4.0,<0.9.0",
     "pint>=0.20.0,<1.0.0",
+    "scipy>=1.16.1",
     "tifffile>=2024.1.0,<2025.5.10",
-    "zarr==2.18.3",
-    "bokeh>=3.1.0"
+    "xarray-multiscale>=2.1.0",
+    "zarr>=2.18.3,<3.0"
 ]
 
 [project.scripts]
 zarrify = "zarrify.to_zarr:cli"
+zarr-multiscale = "zarrify.multiscale.to_multiscale:cli"
 
 [project.optional-dependencies]
 test = [
     "pytest"
 ]
 
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
 
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+[tool.pixi.tasks]
+dev-install = "pip install -e ."
+zarrify = { cmd = "zarrify" }
+zarr-multiscale = { cmd = "zarr-multiscale" }
+test = "pytest"
+clean = "rm -rf build/ dist/ *.egg-info/ .pytest_cache/ __pycache__/ dask_dashboard_link.txt"
+
+[tool.pixi.feature.test.tasks]
+test-install = "pip install -e ."
+test = { cmd = "pytest", depends-on = ["test-install"] }
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+test = { features = ["test"], solve-group = "default" }
+
+[tool.pixi.dependencies]
+python = "3.12.*"
+pip = ">=25.2,<26"
+

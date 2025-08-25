@@ -67,17 +67,11 @@ class TiffStack(Volume):
 
     # parallel writing of tiff stack into zarr array
     def write_to_zarr(self,
-        dest: str,
+        zarr_array: zarr.Array,
         client: Client,
-        zarr_chunks : list[int],
-        comp : ABCMeta = Zstd(level=6),
         ):
         
-        # reshape chunk shape to align with arr shape
-        if len(zarr_chunks) != len(self.shape):
-           zarr_chunks = self.reshape_to_arr_shape(zarr_chunks, self.shape)
-        
-        z_arr = self.get_output_array(dest, zarr_chunks, comp)
+        z_arr = zarr_array
         chunks_list = np.arange(0, z_arr.shape[0], z_arr.chunks[0])
 
         start = time.time()

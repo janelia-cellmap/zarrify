@@ -1,7 +1,6 @@
 import zarr
 from abc import ABCMeta
 
-
 class Volume:
 
     def __init__(
@@ -20,34 +19,33 @@ class Volume:
             "units": units,
         }
         
-    def get_output_array(self, dest: str, chunks: list[int], comp: ABCMeta) -> zarr.Array:
-        z_store = zarr.NestedDirectoryStore(dest)
-        z_root = zarr.open(store=z_store, mode="a")
-        
-        return z_root.require_dataset(
-            name="s0",
-            shape=self.shape,
-            dtype=self.dtype,
-            chunks=chunks,
-            compressor=comp,
-        )
-        
     def reshape_to_arr_shape(self, param_arr, ref_arr):
         from itertools import cycle, islice
         return list(islice(cycle(param_arr), len(ref_arr)))
 
-    def add_ome_metadata(self, dest: str):
+    def add_ome_metadata(self, dest: str, full_scale_group_name: str = 's0'):
         """Add selected tiff metadata to zarr attributes file (.zattrs).
 
         Args:
-            root (zarr.Group): root group of the output zarr array
+            dest (str): path to the output zarr
         """
-        print(self.metadata['axes'])
+        print(f"Adding OME-Zarr metadata to {dest}")
+        print(f"Metadata axes: {self.metadata['axes']}")
+        print(f"Metadata units: {self.metadata['units']}")
+        print(f"Metadata scale: {self.metadata['scale']}")
+        print(f"Metadata translation: {self.metadata['translation']}", flush=True)
+
+        def get_axis(axis : str, unit : str) -> dict:
+            if unit:
+                return {"name": axis, "type": "space", "unit": unit}
+            else:
+                return {"name": axis, "type": "space"}
+
         root = zarr.open(dest, mode = 'a')
         # json template for a multiscale structure
         z_attrs: dict = {"multiscales": [{}]}
         z_attrs["multiscales"][0]["axes"] = [
-            {"name": axis, "type": "space", "unit": unit}
+            get_axis(axis, unit)
             for axis, unit in zip(list(self.metadata["axes"]), self.metadata["units"])
         ]
         z_attrs["multiscales"][0]["coordinateTransformations"] = [
@@ -62,7 +60,7 @@ class Volume:
                         "type": "translation",
                     },
                 ],
-                "path": list(root.array_keys())[0],
+                "path": full_scale_group_name,
             }
         ]
 

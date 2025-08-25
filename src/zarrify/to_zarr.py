@@ -10,6 +10,7 @@ from zarrify.formats.tiff import Tiff
 from zarrify.formats.mrc import Mrc3D
 from zarrify.formats.n5 import N5Group
 from zarrify.utils.dask_utils import initialize_dask_client
+from zarrify.utils.zarr_utils import create_output_array
 from typing import Union
 
 
@@ -17,7 +18,8 @@ def init_dataset(src :str,
                  axes : list[str],
                  scale : list[float],
                  translation : list[float],
-                 units : list[str]) -> Union[TiffStack, Tiff, N5Group, Mrc3D]:
+                 units : list[str],
+                 optimize_reads : bool = False) -> Union[TiffStack, Tiff, N5Group, Mrc3D]:
     """Returns an instance of a dataset class (TiffStack, N5Group, Mrc3D, or Tiff), depending on the input file format.
 
     Args:
@@ -26,7 +28,7 @@ def init_dataset(src :str,
         scale (list[float]): voxel size (for ome-zarr metadata)
         translation (list[float]): offset (for ome-zarr metadata)
         units (list[str]): physical units (for ome-zarr metadata)
-
+        optimize_reads (bool): enable optimized TIFF loading using chunk-aligned reads.
     Raises:
         ValueError: return value error if the input file format not in the list.
 
@@ -36,7 +38,7 @@ def init_dataset(src :str,
     """
     
     src_path = Path(src)
-    params = (src, axes, scale, translation, units)
+    params = (src, axes, scale, translation, units, optimize_reads)
     
     ext = src_path.suffix.lower()
 
@@ -56,10 +58,11 @@ def to_zarr(src : str,
             client : Client,
             workers : int = 20,
             zarr_chunks : list[int] = [3, 128, 128, 128],
-            axes : list[str] = ['c','z', 'y', 'x'], 
+            axes : list[str] = ['c', 'z', 'y', 'x'],
             scale : list[float] = [1.0,]*4,
             translation : list[float] = [0.0,]*4,
-            units: list[str] = ['nanometer',]*4):
+            units: list[str] = ['']+['nanometer',]*3,
+            optimize_reads : bool = False):
     """Convert Tiff stack, 3D Tiff, N5, or MRC file to OME-Zarr.
 
     Args:
@@ -67,21 +70,51 @@ def to_zarr(src : str,
         dest (str): output zarr group location.
         client (Client): dask client instance.
         workers (int, optional): Number of dask workers. Defaults to 20.
-        zarr_chunks (list[int], optional): _description_. Defaults to [128,]*3.
-        axes (list[str], optional): axis order. Defaults to ['z', 'y', 'x'].
-        scale (list[float], optional): voxel size (in physical units). Defaults to [1.0,]*3.
-        translation (list[float], optional): offset (in physical units). Defaults to [0.0,]*3.
-        units (list[str], optional): physical units. Defaults to ['nanometer']*3.
+        zarr_chunks (list[int], optional): _description_. Defaults to [128,]*4.
+        axes (list[str], optional): axis order. Defaults to ['c', 'z', 'y', 'x'].
+        scale (list[float], optional): voxel size (in physical units). Defaults to [1.0,]*4.
+        translation (list[float], optional): offset (in physical units). Defaults to [0.0,]*4.
+        units (list[str], optional): physical units. Defaults to ['']+['nanometer']*3.
     """
+    dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
+    print(f"Input dataset: {type(dataset)}")
+    print(f"Input dataset shape: {dataset.shape}")
+    print(f"Input dataset dtype: {dataset.dtype}")
+    print(f"Input dataset ndim: {dataset.ndim}", flush=True)
     
-    dataset = init_dataset(src, axes, scale, translation, units)
+    # Handle N5Group separately as it has custom zarr creation logic
+    if isinstance(dataset, N5Group):
+        # N5 handles zarr creation internally due to tree structure complexity
+        client.cluster.scale(workers)
+        dataset.write_to_zarr(dest, client, zarr_chunks)
+        client.cluster.scale(0)
 
-    # write in parallel to zarr using dask
+        # populate zarr metadata
+        dataset.add_ome_metadata(dest)
+        return
+
+    # Reshape chunks to match data dimensionality
+    print(f"Zarr chunks: {zarr_chunks}", flush=True)
+    if len(zarr_chunks) != len(dataset.shape):
+        print(f"Reshaping chunks to match data dimensionality")
+        zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
+        print(f"Reshaped chunks: {zarr_chunks}", flush=True)
+
+    # Create zarr array externally
+    zarr_array = create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
+    print(f"Created output Zarr: {zarr_array}", flush=True)
+
+    # Populate zarr metadata
+    full_scale_group_name = zarr_array.name.lstrip('/')
+    dataset.add_ome_metadata(dest, full_scale_group_name)
+    print(f"Added OME-Zarr metadata", flush=True)
+
+    # Write data using new signature
+    print(f"Writing data to Zarr arrays...", flush=True)
     client.cluster.scale(workers)
-    dataset.write_to_zarr(dest, client, zarr_chunks)
+    dataset.write_to_zarr(zarr_array, client)
     client.cluster.scale(0)
-    # populate zarr metadata
-    dataset.add_ome_metadata(dest)
+    print(f"Completed writing all data to Zarr arrays", flush=True)
 
 
 @click.command("zarrify")
@@ -138,15 +171,36 @@ def to_zarr(src : str,
     "--units",
     "-u",
     nargs=4,
-    default=("nanometer", "nanometer", "nanometer", "nanometer"),
+    default=("", "nanometer", "nanometer", "nanometer"),
     type=str,
-    help="Metadata unit names. Order matters. \n Example: -t nanometer nanometer nanometer",
+    help="Metadata unit names. Order matters. \n Example: -u nanometer nanometer nanometer",
 )
-@click.option('--log_dir', default = None, type=click.STRING,
-    help="The path of the parent directory for all LSF worker logs.  Omit if you want worker logs to be emailed to you.")
-def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir):
+@click.option(
+    "--log_dir",
+    "-l",
+    default=None,
+    type=click.STRING,
+    help="The path of the parent directory for all LSF worker logs. Omit if you want worker logs to be emailed to you.",
+)
+@click.option(
+    "--extra_directives",
+    "-e",
+    default=None,
+    type=click.STRING,
+    multiple=True,
+    help="Additional LSF job directives (e.g., -P project_name). Can be specified multiple times.",
+)
+@click.option(
+    "--optimize_reads",
+    is_flag=True,
+    default=False,
+    help="Enable optimized image loading using chunk-aligned reads.",
+)
+
+def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
+    print(f"Starting Zarrify...", flush=True)
     # create a dask client to submit tasks
-    client = initialize_dask_client(cluster, log_dir)
+    client = initialize_dask_client(cluster, log_dir, extra_directives)
     
     # convert src dataset(n5, tiff, mrc) to zarr ome dataset 
     to_zarr(src,
@@ -157,7 +211,8 @@ def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, unit
             axes, 
             scale,
             translation,
-            units)
+            units,
+            optimize_reads)
 
 if __name__ == "__main__":
     cli()
