@@ -33,7 +33,7 @@ class Volume:
         print(f"Metadata axes: {self.metadata['axes']}")
         print(f"Metadata units: {self.metadata['units']}")
         print(f"Metadata scale: {self.metadata['scale']}")
-        print(f"Metadata translation: {self.metadata['translation']}")
+        print(f"Metadata translation: {self.metadata['translation']}", flush=True)
 
         def get_axis(axis : str, unit : str) -> dict:
             if unit:

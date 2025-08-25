@@ -13,6 +13,7 @@ from zarrify.utils.dask_utils import initialize_dask_client
 from zarrify.utils.zarr_utils import create_output_array
 from typing import Union
 
+
 def init_dataset(src :str,
                  axes : list[str],
                  scale : list[float],
@@ -79,7 +80,7 @@ def to_zarr(src : str,
     print(f"Input dataset: {type(dataset)}")
     print(f"Input dataset shape: {dataset.shape}")
     print(f"Input dataset dtype: {dataset.dtype}")
-    print(f"Input dataset ndim: {dataset.ndim}")
+    print(f"Input dataset ndim: {dataset.ndim}", flush=True)
     
     # Handle N5Group separately as it has custom zarr creation logic
     if isinstance(dataset, N5Group):
@@ -93,27 +94,27 @@ def to_zarr(src : str,
         return
 
     # Reshape chunks to match data dimensionality
-    print(f"Zarr chunks: {zarr_chunks}")
+    print(f"Zarr chunks: {zarr_chunks}", flush=True)
     if len(zarr_chunks) != len(dataset.shape):
         print(f"Reshaping chunks to match data dimensionality")
         zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
-        print(f"Reshaped chunks: {zarr_chunks}")
+        print(f"Reshaped chunks: {zarr_chunks}", flush=True)
 
     # Create zarr array externally
     zarr_array = create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
-    print(f"Created output Zarr: {zarr_array}")
+    print(f"Created output Zarr: {zarr_array}", flush=True)
 
     # Populate zarr metadata
     full_scale_group_name = zarr_array.name.lstrip('/')
     dataset.add_ome_metadata(dest, full_scale_group_name)
-    print(f"Added OME-Zarr metadata")
+    print(f"Added OME-Zarr metadata", flush=True)
 
     # Write data using new signature
-    print(f"Writing data to Zarr arrays...")
+    print(f"Writing data to Zarr arrays...", flush=True)
     client.cluster.scale(workers)
     dataset.write_to_zarr(zarr_array, client)
     client.cluster.scale(0)
-    print(f"Completed writing all data to Zarr arrays")
+    print(f"Completed writing all data to Zarr arrays", flush=True)
 
 
 @click.command("zarrify")
@@ -197,6 +198,7 @@ def to_zarr(src : str,
 )
 
 def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
+    print(f"Starting Zarrify...", flush=True)
     # create a dask client to submit tasks
     client = initialize_dask_client(cluster, log_dir, extra_directives)
     

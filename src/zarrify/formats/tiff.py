@@ -56,6 +56,8 @@ class Tiff(Volume):
         slice_chunks = z_arr.chunks
 
         if self.optimize_reads:
+            print("Optimizing read chunking...")
+            # TODO: this works for some cases, doesn't work in others, need to understand why
             #slicing
             #(c, z, y, x) or (z, y, x) - combine (c, z) from zarr_chunks and (y, x) from tiff chunking
             print(f"Zarr array chunks: {z_arr.chunks}")
@@ -63,31 +65,24 @@ class Tiff(Volume):
             slice_chunks = list(z_arr.chunks[:slab_axis+1]).copy()
             print(f"Slice chunks: {slice_chunks}")
             slice_chunks.extend(self.zarr_arr.chunks[slab_axis+1:])
-            print(f"Slice chunks extended: {slice_chunks}")
-
-            # Take minimum chunk size between slice_chunks and z_arr.chunks at each position
-            slice_chunks = [min(s, z) for s, z in zip(slice_chunks, z_arr.chunks)]
-            print(f"Slice chunks after min: {slice_chunks}")
+            print(f"Slice chunks extended: {slice_chunks}", flush=True)
 
         print(f"Zarr array shape: {self.zarr_arr.shape}")
         normalized_chunks = normalize_chunks(slice_chunks, shape=self.zarr_arr.shape)
-        print(f"Normalized chunks: {normalized_chunks}")
+        print(f"Normalized chunks: {normalized_chunks}", flush=True)
         slice_tuples = slices_from_chunks(normalized_chunks)
 
-        
         src_path = copy.copy(self.src_path)
 
         start = time.time()
         fut = client.map(
             lambda v: write_volume_slab_to_zarr(v, z_arr, src_path), slice_tuples
         )
-        print(
-            f"Submitted {len(slice_tuples)} tasks to the scheduler in {time.time()- start}s"
-        )
+        print(f"Submitted {len(slice_tuples)} tasks to the scheduler in {time.time()- start}s", flush=True)
 
         # wait for all the futures to complete
         result = wait(fut)
-        print(f"Completed {len(slice_tuples)} tasks in {time.time() - start}s")
+        print(f"Completed {len(slice_tuples)} tasks in {time.time() - start}s", flush=True)
 
         return 0
 
