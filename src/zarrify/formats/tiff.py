@@ -48,7 +48,8 @@ class Tiff(Volume):
         client: Client,
         ):
         
-        slab_axis = 0 if len(self.shape) < 4 else 1
+        # Find slab axis based on metadata axes - use z axis for slabbing
+        slab_axis = self.metadata["axes"].index('z')
             
         z_arr = zarr_array
         
