@@ -17,7 +17,8 @@ def init_dataset(src :str,
                  axes : list[str],
                  scale : list[float],
                  translation : list[float],
-                 units : list[str]) -> Union[TiffStack, Tiff, N5Group, Mrc3D]:
+                 units : list[str],
+                 optimize_reads : bool = False) -> Union[TiffStack, Tiff, N5Group, Mrc3D]:
     """Returns an instance of a dataset class (TiffStack, N5Group, Mrc3D, or Tiff), depending on the input file format.
 
     Args:
@@ -26,7 +27,7 @@ def init_dataset(src :str,
         scale (list[float]): voxel size (for ome-zarr metadata)
         translation (list[float]): offset (for ome-zarr metadata)
         units (list[str]): physical units (for ome-zarr metadata)
-
+        optimize_reads (bool): enable optimized TIFF loading using chunk-aligned reads.
     Raises:
         ValueError: return value error if the input file format not in the list.
 
@@ -36,7 +37,7 @@ def init_dataset(src :str,
     """
     
     src_path = Path(src)
-    params = (src, axes, scale, translation, units)
+    params = (src, axes, scale, translation, units, optimize_reads)
     
     ext = src_path.suffix.lower()
 
@@ -59,7 +60,8 @@ def to_zarr(src : str,
             axes : list[str] = ['c', 'z', 'y', 'x'],
             scale : list[float] = [1.0,]*4,
             translation : list[float] = [0.0,]*4,
-            units: list[str] = ['']+['nanometer',]*3):
+            units: list[str] = ['']+['nanometer',]*3,
+            optimize_reads : bool = False):
     """Convert Tiff stack, 3D Tiff, N5, or MRC file to OME-Zarr.
 
     Args:
@@ -73,8 +75,11 @@ def to_zarr(src : str,
         translation (list[float], optional): offset (in physical units). Defaults to [0.0,]*4.
         units (list[str], optional): physical units. Defaults to ['']+['nanometer']*3.
     """
-    
-    dataset = init_dataset(src, axes, scale, translation, units)
+    dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
+    print(f"Input dataset: {type(dataset)}")
+    print(f"Input dataset shape: {dataset.shape}")
+    print(f"Input dataset dtype: {dataset.dtype}")
+    print(f"Input dataset ndim: {dataset.ndim}")
     
     # Handle N5Group separately as it has custom zarr creation logic
     if isinstance(dataset, N5Group):
@@ -169,11 +174,29 @@ def to_zarr(src : str,
     type=str,
     help="Metadata unit names. Order matters. \n Example: -u nanometer nanometer nanometer",
 )
-@click.option('--log_dir', default = None, type=click.STRING,
-    help="The path of the parent directory for all LSF worker logs.  Omit if you want worker logs to be emailed to you.")
-@click.option('--extra_directives', default = None, type=click.STRING, multiple=True,
-    help="Additional LSF job directives (e.g., -P project_name). Can be specified multiple times.")
-def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives):
+@click.option(
+    "--log_dir",
+    "-l",
+    default=None,
+    type=click.STRING,
+    help="The path of the parent directory for all LSF worker logs. Omit if you want worker logs to be emailed to you.",
+)
+@click.option(
+    "--extra_directives",
+    "-e",
+    default=None,
+    type=click.STRING,
+    multiple=True,
+    help="Additional LSF job directives (e.g., -P project_name). Can be specified multiple times.",
+)
+@click.option(
+    "--optimize_reads",
+    is_flag=True,
+    default=False,
+    help="Enable optimized image loading using chunk-aligned reads.",
+)
+
+def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
     # create a dask client to submit tasks
     client = initialize_dask_client(cluster, log_dir, extra_directives)
     
@@ -186,7 +209,8 @@ def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, unit
             axes, 
             scale,
             translation,
-            units)
+            units,
+            optimize_reads)
 
 if __name__ == "__main__":
     cli()

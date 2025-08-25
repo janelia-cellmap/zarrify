@@ -8,7 +8,6 @@ import copy
 from zarrify.utils.volume import Volume
 from abc import ABCMeta
 from numcodecs import Zstd
-import logging
 from dask.array.core import slices_from_chunks, normalize_chunks
 
 
@@ -22,6 +21,7 @@ class Tiff(Volume):
         scale: list[float],
         translation: list[float],
         units: list[str],
+        optimize_reads: bool = False,
     ):
         """Construct all the necessary attributes for the proper conversion of tiff to OME-NGFF Zarr.
 
@@ -36,7 +36,8 @@ class Tiff(Volume):
         self.shape = self.zarr_arr.shape
         self.dtype = self.zarr_arr.dtype
         self.ndim = self.zarr_arr.ndim
-        
+        self.optimize_reads = optimize_reads
+
         # Scale metadata parameters to match data dimensionality
         self.metadata["axes"] = list(self.metadata["axes"])[-self.ndim:]
         self.metadata["scale"] = self.metadata["scale"][-self.ndim:]
@@ -52,17 +53,27 @@ class Tiff(Volume):
         slab_axis = self.metadata["axes"].index('z')
             
         z_arr = zarr_array
-        
-        #slicing
-        #(c, z, y, x) or (z, y, x) - combine (c, z) from zarr_chunks and (y, x) from tiff chunking
-        slice_chunks = list(z_arr.chunks[:slab_axis+1]).copy()
-        slice_chunks.extend(self.zarr_arr.chunks[slab_axis+1:])
-        print(slice_chunks)
-        
+        slice_chunks = z_arr.chunks
+
+        if self.optimize_reads:
+            #slicing
+            #(c, z, y, x) or (z, y, x) - combine (c, z) from zarr_chunks and (y, x) from tiff chunking
+            print(f"Zarr array chunks: {z_arr.chunks}")
+            print(f"Tiff array chunks: {self.zarr_arr.chunks}")
+            slice_chunks = list(z_arr.chunks[:slab_axis+1]).copy()
+            print(f"Slice chunks: {slice_chunks}")
+            slice_chunks.extend(self.zarr_arr.chunks[slab_axis+1:])
+            print(f"Slice chunks extended: {slice_chunks}")
+
+            # Take minimum chunk size between slice_chunks and z_arr.chunks at each position
+            slice_chunks = [min(s, z) for s, z in zip(slice_chunks, z_arr.chunks)]
+            print(f"Slice chunks after min: {slice_chunks}")
+
+        print(f"Zarr array shape: {self.zarr_arr.shape}")
         normalized_chunks = normalize_chunks(slice_chunks, shape=self.zarr_arr.shape)
+        print(f"Normalized chunks: {normalized_chunks}")
         slice_tuples = slices_from_chunks(normalized_chunks)
 
-        
         
         src_path = copy.copy(self.src_path)
 
@@ -70,19 +81,18 @@ class Tiff(Volume):
         fut = client.map(
             lambda v: write_volume_slab_to_zarr(v, z_arr, src_path), slice_tuples
         )
-        logging.info(
+        print(
             f"Submitted {len(slice_tuples)} tasks to the scheduler in {time.time()- start}s"
         )
 
         # wait for all the futures to complete
         result = wait(fut)
-        logging.info(f"Completed {len(slice_tuples)} tasks in {time.time() - start}s")
+        print(f"Completed {len(slice_tuples)} tasks in {time.time() - start}s")
 
         return 0
 
 
 def write_volume_slab_to_zarr(slice: slice, zarray: zarr.Array, src_path: str):
-
     tiff_store = imread(src_path, aszarr=True)
     src_tiff_arr = zarr.open(tiff_store, mode='r')
     zarray[slice] = src_tiff_arr[slice]
