@@ -29,12 +29,23 @@ class Volume:
         Args:
             dest (str): path to the output zarr
         """
-        print(self.metadata['axes'])
+        print(f"Adding OME-Zarr metadata to {dest}")
+        print(f"Metadata axes: {self.metadata['axes']}")
+        print(f"Metadata units: {self.metadata['units']}")
+        print(f"Metadata scale: {self.metadata['scale']}")
+        print(f"Metadata translation: {self.metadata['translation']}")
+
+        def get_axis(axis : str, unit : str) -> dict:
+            if unit:
+                return {"name": axis, "type": "space", "unit": unit}
+            else:
+                return {"name": axis, "type": "space"}
+
         root = zarr.open(dest, mode = 'a')
         # json template for a multiscale structure
         z_attrs: dict = {"multiscales": [{}]}
         z_attrs["multiscales"][0]["axes"] = [
-            {"name": axis, "type": "space", "unit": unit}
+            get_axis(axis, unit)
             for axis, unit in zip(list(self.metadata["axes"]), self.metadata["units"])
         ]
         z_attrs["multiscales"][0]["coordinateTransformations"] = [
