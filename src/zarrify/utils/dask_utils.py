@@ -2,7 +2,6 @@ from dask_jobqueue import LSFCluster
 from dask.distributed import Client, LocalCluster
 import os
 import sys
-import logging
 
 
 def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None, job_extra_directives: tuple[str, ...] = None) -> Client:
@@ -43,10 +42,10 @@ def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None,
         raise ValueError(f"Unsupported cluster type: {cluster_type}")
 
     client = Client(cluster)
-    print(str(client.dashboard_link))
+    print(f"Dask dashboard link: {client.dashboard_link}")
     with open(
         os.path.join(os.getcwd(), "dask_dashboard_link" + ".txt"), "w"
     ) as text_file:
         text_file.write(str(client.dashboard_link))
-    logging.info(client.dashboard_link)
+
     return client
