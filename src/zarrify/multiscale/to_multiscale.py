@@ -10,8 +10,8 @@ from toolz import partition_all
 import click
 import math
 import scipy.ndimage as ndi
-from dask_utils import initialize_dask_client
-from pydantic_models import validate_config
+from zarrify.utils.dask_utils import initialize_dask_client
+from zarrify.multiscale.pydantic_models import validate_config
 
 def upscale_slice(slc: slice, factor: int):
     """
@@ -140,7 +140,7 @@ def create_multiscale(z_root: zarr.Group,
     
     #continue downsampling if output array dimensions > 32 
     while all([dim > 32 for dim in spatial_shape]):
-        print(f'{level=}')
+        print(f'Computing image for scale level {level}', flush=True)
         source_arr = z_root[f's{level-1}']
         
         if custom_scale_factors:
@@ -167,14 +167,14 @@ def create_multiscale(z_root: zarr.Group,
         #break the slices up into batches, to make things easier for the dask scheduler
         out_slices_partitioned = tuple(partition_all(100000, out_slices))
         for idx, part in enumerate(out_slices_partitioned):
-            print(f'{idx + 1} / {len(out_slices_partitioned)}')
+            print(f'{idx + 1} / {len(out_slices_partitioned)}', flush=True)
             start = time.time()
             fut = client.map(lambda v: downsample_save_chunk_mode(source_arr, dest_arr, v, scaling_factors, data_origin, antialiasing), part)
-            print(f'Submitted {len(part)} tasks to the scheduler in {time.time()- start}s')
+            print(f'Submitted {len(part)} tasks to the scheduler in {time.time()- start}s', flush=True)
             
             # wait for all the futures to complete
             result = wait(fut)
-            print(f'Completed {len(part)} tasks in {time.time() - start}s')
+            print(f'Completed {len(part)} tasks in {time.time() - start}s', flush=True)
             
         # calculate scale and transalation for n-th scale
         sn = [sc*sn_prev for sn_prev, sc in zip(scn_level_up, scaling_factors)]
