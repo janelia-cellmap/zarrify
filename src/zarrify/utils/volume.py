@@ -1,7 +1,6 @@
 import zarr
 from abc import ABCMeta
 
-
 class Volume:
 
     def __init__(
@@ -24,7 +23,7 @@ class Volume:
         from itertools import cycle, islice
         return list(islice(cycle(param_arr), len(ref_arr)))
 
-    def add_ome_metadata(self, dest: str):
+    def add_ome_metadata(self, dest: str, full_scale_group_name: str = 's0'):
         """Add selected tiff metadata to zarr attributes file (.zattrs).
 
         Args:
@@ -50,7 +49,7 @@ class Volume:
                         "type": "translation",
                     },
                 ],
-                "path": list(root.array_keys())[0],
+                "path": full_scale_group_name,
             }
         ]
 

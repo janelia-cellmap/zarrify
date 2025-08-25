@@ -9,9 +9,9 @@ from zarrify.formats.tiff_stack import TiffStack
 from zarrify.formats.tiff import Tiff
 from zarrify.formats.mrc import Mrc3D
 from zarrify.formats.n5 import N5Group
-from zarrify.utils.dask_utils import initialize_dask_client, create_output_array
+from zarrify.utils.dask_utils import initialize_dask_client
+from zarrify.utils.zarr_utils import create_output_array
 from typing import Union
-
 
 def init_dataset(src :str,
                  axes : list[str],
@@ -82,21 +82,33 @@ def to_zarr(src : str,
         client.cluster.scale(workers)
         dataset.write_to_zarr(dest, client, zarr_chunks)
         client.cluster.scale(0)
-    else:
-        # Reshape chunks to match data dimensionality
-        if len(zarr_chunks) != len(dataset.shape):
-            zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
-        
-        # Create zarr array externally
-        zarr_array = create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
-        
-        # Write data using new signature
-        client.cluster.scale(workers)
-        dataset.write_to_zarr(zarr_array, client)
-        client.cluster.scale(0)
-    
-    # populate zarr metadata
-    dataset.add_ome_metadata(dest)
+
+        # populate zarr metadata
+        dataset.add_ome_metadata(dest)
+        return
+
+    # Reshape chunks to match data dimensionality
+    print(f"Zarr chunks: {zarr_chunks}")
+    if len(zarr_chunks) != len(dataset.shape):
+        print(f"Reshaping chunks to match data dimensionality")
+        zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
+        print(f"Reshaped chunks: {zarr_chunks}")
+
+    # Create zarr array externally
+    zarr_array = create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
+    print(f"Created output Zarr: {zarr_array}")
+
+    # Populate zarr metadata
+    full_scale_group_name = zarr_array.name.lstrip('/')
+    dataset.add_ome_metadata(dest, full_scale_group_name)
+    print(f"Added OME-Zarr metadata")
+
+    # Write data using new signature
+    print(f"Writing data to Zarr arrays...")
+    client.cluster.scale(workers)
+    dataset.write_to_zarr(zarr_array, client)
+    client.cluster.scale(0)
+    print(f"Completed writing all data to Zarr arrays")
 
 
 @click.command("zarrify")
