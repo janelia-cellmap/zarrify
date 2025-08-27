@@ -12,7 +12,13 @@ from zarrify.formats.n5 import N5Group
 from zarrify.utils.dask_utils import initialize_dask_client
 from zarrify.utils.zarr_utils import create_output_array
 from typing import Union
+import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 def init_dataset(src :str,
                  axes : list[str],
@@ -38,7 +44,7 @@ def init_dataset(src :str,
     """
     
     src_path = Path(src)
-    params = (src, axes, scale, translation, units, optimize_reads)
+    params = (src, axes, scale, translation, units)
     
     ext = src_path.suffix.lower()
 
@@ -49,7 +55,7 @@ def init_dataset(src :str,
     elif ext == ".mrc":
         return Mrc3D(*params)
     elif ext in (".tif", ".tiff"):
-        return Tiff(*params)
+        return Tiff(*params, optimize_reads)
     
     raise ValueError(f"Unsupported source type: {src}")
 
@@ -77,10 +83,10 @@ def to_zarr(src : str,
         units (list[str], optional): physical units. Defaults to ['']+['nanometer']*3.
     """
     dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
-    print(f"Input dataset: {type(dataset)}")
-    print(f"Input dataset shape: {dataset.shape}")
-    print(f"Input dataset dtype: {dataset.dtype}")
-    print(f"Input dataset ndim: {dataset.ndim}", flush=True)
+    logger.info(f"Input dataset: {type(dataset)}")
+    logger.info(f"Input dataset shape: {dataset.shape}")
+    logger.info(f"Input dataset dtype: {dataset.dtype}")
+    logger.info(f"Input dataset ndim: {dataset.ndim}", flush=True)
     
     # Handle N5Group separately as it has custom zarr creation logic
     if isinstance(dataset, N5Group):
@@ -94,28 +100,27 @@ def to_zarr(src : str,
         return
 
     # Reshape chunks to match data dimensionality
-    print(f"Zarr chunks: {zarr_chunks}", flush=True)
+    logger.info(f"Zarr chunks: {zarr_chunks}")
     if len(zarr_chunks) != len(dataset.shape):
-        print(f"Reshaping chunks to match data dimensionality")
+        logger.info(f"Reshaping chunks to match data dimensionality")
         zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
-        print(f"Reshaped chunks: {zarr_chunks}", flush=True)
+        logger.info(f"Reshaped chunks: {zarr_chunks}")
 
     # Create zarr array externally
     zarr_array = create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
-    print(f"Created output Zarr: {zarr_array}", flush=True)
+    logger.info(f"Created output Zarr: {zarr_array}")
 
     # Populate zarr metadata
     full_scale_group_name = zarr_array.name.lstrip('/')
     dataset.add_ome_metadata(dest, full_scale_group_name)
-    print(f"Added OME-Zarr metadata", flush=True)
+    logger.info(f"Added OME-Zarr metadata")
 
     # Write data using new signature
-    print(f"Writing data to Zarr arrays...", flush=True)
+    logger.info(f"Writing data to Zarr arrays...")
     client.cluster.scale(workers)
     dataset.write_to_zarr(zarr_array, client)
     client.cluster.scale(0)
-    print(f"Completed writing all data to Zarr arrays", flush=True)
-
+    logger.info(f"Completed writing all data to Zarr arrays")
 
 @click.command("zarrify")
 @click.option(
@@ -198,7 +203,7 @@ def to_zarr(src : str,
 )
 
 def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
-    print(f"Starting Zarrify...", flush=True)
+    logger.info(f"Starting Zarrify...")
     # create a dask client to submit tasks
     client = initialize_dask_client(cluster, log_dir, extra_directives)
     

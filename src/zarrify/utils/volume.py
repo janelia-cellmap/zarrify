@@ -1,5 +1,12 @@
 import zarr
 from abc import ABCMeta
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 
 class Volume:
 
@@ -29,11 +36,11 @@ class Volume:
         Args:
             dest (str): path to the output zarr
         """
-        print(f"Adding OME-Zarr metadata to {dest}")
-        print(f"Metadata axes: {self.metadata['axes']}")
-        print(f"Metadata units: {self.metadata['units']}")
-        print(f"Metadata scale: {self.metadata['scale']}")
-        print(f"Metadata translation: {self.metadata['translation']}", flush=True)
+        logger.info(f"Adding OME-Zarr metadata to {dest}")
+        logger.info(f"Metadata axes: {self.metadata['axes']}")
+        logger.info(f"Metadata units: {self.metadata['units']}")
+        logger.info(f"Metadata scale: {self.metadata['scale']}")
+        logger.info(f"Metadata translation: {self.metadata['translation']}")
 
         def get_axis(axis : str, unit : str) -> dict:
             if unit:
