@@ -11,6 +11,7 @@ from zarrify.formats.mrc import Mrc3D
 from zarrify.formats.n5 import N5Group
 from zarrify.utils.dask_utils import initialize_dask_client
 from zarrify.utils.zarr_utils import create_output_array
+from zarrify.utils.pydantic_models import validate_config
 from typing import Union
 import logging
 
@@ -68,7 +69,14 @@ def to_zarr(src : str,
             scale : list[float] = [1.0,]*4,
             translation : list[float] = [0.0,]*4,
             units: list[str] = ['']+['nanometer',]*3,
-            optimize_reads : bool = False):
+            optimize_reads : bool = False,
+            multiscale : bool = False,
+            ms_workers: int = None,
+            data_origin : str = None,
+            antialiasing : bool = False,
+            normalize_voxel_size : bool = False,
+            custom_scale_factors : str = None
+            ):
     """Convert Tiff stack, 3D Tiff, N5, or MRC file to OME-Zarr.
 
     Args:
@@ -86,7 +94,7 @@ def to_zarr(src : str,
     logger.info(f"Input dataset: {type(dataset)}")
     logger.info(f"Input dataset shape: {dataset.shape}")
     logger.info(f"Input dataset dtype: {dataset.dtype}")
-    logger.info(f"Input dataset ndim: {dataset.ndim}", flush=True)
+    logger.info(f"Input dataset ndim: {dataset.ndim}")
     
     # Handle N5Group separately as it has custom zarr creation logic
     if isinstance(dataset, N5Group):
@@ -98,16 +106,30 @@ def to_zarr(src : str,
         # populate zarr metadata
         dataset.add_ome_metadata(dest)
         return
-
+    
     # Reshape chunks to match data dimensionality
     logger.info(f"Zarr chunks: {zarr_chunks}")
     if len(zarr_chunks) != len(dataset.shape):
         logger.info(f"Reshaping chunks to match data dimensionality")
         zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
         logger.info(f"Reshaped chunks: {zarr_chunks}")
+        
+    # check multiscale custom scale parameters before expensive data copying
+    if multiscale:
+        if not ms_workers:
+            ms_workers = workers
+        if not data_origin:
+            raise ValueError('Data origin (raw/labels) is not specified')
+        
+        if custom_scale_factors:    
+            if any([int(s0_dim/ sc) > 32 for s0_dim, sc in zip(dataset.shape, custom_scale_factors[-1])]):
+                raise ValueError('Not enough custom scale levels to generate full multiscale pyramid')
+
+    z_store = zarr.NestedDirectoryStore(dest)
+    z_root = zarr.open(store=z_store, mode="a")
 
     # Create zarr array externally
-    zarr_array = create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
+    zarr_array = create_output_array(z_root, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
     logger.info(f"Created output Zarr: {zarr_array}")
 
     # Populate zarr metadata
@@ -121,8 +143,29 @@ def to_zarr(src : str,
     dataset.write_to_zarr(zarr_array, client)
     client.cluster.scale(0)
     logger.info(f"Completed writing all data to Zarr arrays")
+    
+    # create multiscale
+    if multiscale:
+        logger.info(f"create multiscale pyramid")
+        client.cluster.scale(ms_workers)
+        dataset.create_multiscale(z_root,
+                                client,
+                                data_origin,
+                                antialiasing,
+                                normalize_voxel_size,
+                                custom_scale_factors)
+        client.cluster.scale(0)
+        logger.info(f"Completed multiscal pyramid creation")
+        
+    
 
 @click.command("zarrify")
+@click.option(
+    "--config",
+    "-cfg",
+    type=click.Path(exists=True),
+    help="Path to YAML config file with parameters.",
+)
 @click.option(
     "--src",
     "-s",
@@ -131,12 +174,11 @@ def to_zarr(src : str,
 )
 @click.option("--dest", "-d", type=click.STRING, help="Output .zarr file path.")
 @click.option(
-    "--workers", "-w", default=100, type=click.INT, help="Number of dask workers"
+    "--workers", "-w", type=click.INT, help="Number of dask workers"
 )
 @click.option(
     "--cluster",
     "-c",
-    default=None,
     type=click.STRING,
     help="Which instance of dask client to use. Local client - 'local', cluster 'lsf'",
 )
@@ -144,7 +186,6 @@ def to_zarr(src : str,
     "--zarr_chunks",
     "-zc",
     nargs=4,
-    default=(3, 64, 128, 128),
     type=click.INT,
     help="Chunk size. For 3D: (z, y, x), for 4D RGB: (z, y, x, c). Examples: -zc 64 128 128 or -zc 10 64 128 3",
 )
@@ -152,7 +193,6 @@ def to_zarr(src : str,
     "--axes",
     "-a",
     nargs=4,
-    default=("c", "z", "y", "x"),
     type=str,
     help="Metadata axis names. Order matters. \n Example: -a z y x",
 )
@@ -160,7 +200,6 @@ def to_zarr(src : str,
     "--translation",
     "-t",
     nargs=4,
-    default=(0.0, 0.0, 0.0, 0.0),
     type=float,
     help="Metadata translation(offset) value. Order matters. \n Example: -t 1.0 2.0 3.0",
 )
@@ -168,7 +207,6 @@ def to_zarr(src : str,
     "--scale",
     "-sc",
     nargs=4,
-    default=(1.0, 1.0, 1.0, 1.0),
     type=float,
     help="Metadata scale value. Order matters. \n Example: --scale 1.0 2.0 3.0",
 )
@@ -176,21 +214,18 @@ def to_zarr(src : str,
     "--units",
     "-u",
     nargs=4,
-    default=("", "nanometer", "nanometer", "nanometer"),
     type=str,
     help="Metadata unit names. Order matters. \n Example: -u nanometer nanometer nanometer",
 )
 @click.option(
     "--log_dir",
     "-l",
-    default=None,
     type=click.STRING,
     help="The path of the parent directory for all LSF worker logs. Omit if you want worker logs to be emailed to you.",
 )
 @click.option(
     "--extra_directives",
     "-e",
-    default=None,
     type=click.STRING,
     multiple=True,
     help="Additional LSF job directives (e.g., -P project_name). Can be specified multiple times.",
@@ -198,26 +233,43 @@ def to_zarr(src : str,
 @click.option(
     "--optimize_reads",
     is_flag=True,
-    default=False,
     help="Enable optimized image loading using chunk-aligned reads.",
 )
 
-def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
+#def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
+def cli(config, **kwargs):
     logger.info(f"Starting Zarrify...")
+    
+    if config:
+        configs = validate_config(config, **kwargs)
+    else:
+        configs = {k: v for k, v in kwargs.items() if v is not None}
+    
+    
     # create a dask client to submit tasks
-    client = initialize_dask_client(cluster, log_dir, extra_directives)
+    client = initialize_dask_client(configs['cluster'],
+                                    configs.get('log_dir', None),
+                                    configs.get('extra_directives', None))
     
     # convert src dataset(n5, tiff, mrc) to zarr ome dataset 
-    to_zarr(src,
-            dest,
-            client,
-            workers,
-            zarr_chunks,
-            axes, 
-            scale,
-            translation,
-            units,
-            optimize_reads)
-
+    logger.info(configs)
+    to_zarr(src=configs['src'],
+            dest=configs['dest'],
+            client=client,
+            workers=configs['workers'],
+            zarr_chunks=configs['zarr_chunks'],
+            axes=configs['axes'], 
+            scale=configs['scale'],
+            translation=configs['translation'],
+            units=configs['units'],
+            optimize_reads=configs['optimize_reads'],
+            multiscale=configs['multiscale'],
+            ms_workers=configs['ms_workers'],
+            data_origin=configs['data_origin'],
+            antialiasing=configs['antialiasing'],
+            normalize_voxel_size=configs['normalize_voxel_size'],
+            custom_scale_factors=configs['custom_scale_factors']
+    )
+    
 if __name__ == "__main__":
     cli()
