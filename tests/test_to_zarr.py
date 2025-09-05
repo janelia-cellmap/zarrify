@@ -9,7 +9,7 @@ import numpy as np
 import os
 
 from zarrify.utils.dask_utils import initialize_dask_client
-from zarrify import to_zarr
+from zarrify.to_zarr import to_zarr
 
 @pytest.fixture
 def create_test_file(tmp_path):
