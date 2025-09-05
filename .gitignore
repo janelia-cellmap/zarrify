@@ -8,3 +8,5 @@ dist/
 *.egg-info/
 build/
 .vscode/
+.claude
+CLAUDE.md

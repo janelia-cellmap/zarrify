@@ -1,0 +1,25 @@
+src : "/path_to_file/input_file.tiff" # image source path
+dest : "/path_to_output/output_file.zarr" # zarr container path
+
+# Dask configs
+cluster : local # "local"/"lsf" cluster
+workers : 20 # number of dask workers
+log_dir : # specify log directory, otherwise get an email from each worker
+extra_directives : null # pass extra dask options
+
+# Output zarr array configs
+zarr_chunks : [128, 128, 128] # output chunksize 
+axes : [z, y, x] # axis order
+translation : [0.0, 0.0, 0.0] # array offset
+scale : [8.0, 8.0, 8.0] # voxel size
+units : [nanometer, nanometer, nanometer] # physical units 
+optimize_reads : True 
+
+# Multiscale configs
+multiscale : True # whether to create a multiscale pyramid from converted zarr array or not 
+ms_workers : 20 # number of dask workers
+data_origin : "raw" # "raw"/"labels" 
+antialiasing : False # True/False blur dataset with Gaussian filter before downsampling to reduce aliasing       
+normalize_voxel_size : False # True/False
+custom_scale_factors : null # specify custom multipliers for each level [[1,1,1], [2,4,8], [4, 8, 16],...]
+

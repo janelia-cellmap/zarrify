@@ -9,7 +9,7 @@ import numpy as np
 import os
 
 from zarrify.utils.dask_utils import initialize_dask_client
-from zarrify import to_zarr
+from zarrify.to_zarr import to_zarr
 
 @pytest.fixture
 def create_test_file(tmp_path):
@@ -56,4 +56,29 @@ def test_to_zarr(create_test_file, ext, shape):
     dest_data = zarr.open(f'{dest_path}/s0', mode='r')
     assert np.array_equal(dest_data[:], src_data)
     assert np.array_equal(dest_data[:], expected_data)
+
+
+def test_3d_tiff_rgb(tmp_path):
+    """Test 3D TIFF with RGB channels"""
+    
+    # Create 3D RGB data: (channels, depth, height, width)
+    shape = (3, 10, 64, 64)
+    data = np.random.randint(0, 255, shape, dtype=np.uint8)
+    
+    # Create test file
+    src_path = tmp_path / "test_3d_rgb.tif"
+    tifffile.imwrite(src_path, data)
+    dest_path = tmp_path / "test_3d_rgb.zarr"
+    
+    dask_client = initialize_dask_client('local')
+    
+    # Convert to zarr
+    to_zarr(str(src_path), str(dest_path), dask_client)
+    
+    # Verify conversion
+    src_data = tifffile.imread(src_path)
+    dest_data = zarr.open(f'{dest_path}/s0', mode='r')
+    
+    assert dest_data.shape == src_data.shape
+    assert np.array_equal(dest_data[:], src_data)
     
