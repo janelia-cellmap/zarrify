@@ -61,22 +61,41 @@ class Tiff(Volume):
             
         z_arr = zarr_array
         
-        #slice_chunks = z_arr.chunks
-        #if self.optimize_reads:
-        logger.info("Optimizing read chunking...")
-        # TODO: this works for some cases, doesn't work in others, need to understand why
-        #slicing
-        #(c, z, y, x) or (z, y, x) - combine (c, z) from zarr_chunks and (y, x) from tiff chunking
-        logger.info(f"Zarr array chunks: {z_arr.chunks}")
-        logger.info(f"Tiff array chunks: {self.zarr_arr.chunks}")
-        slice_chunks = list(z_arr.chunks[:slab_axis+1]).copy()
-        logger.info(f"Slice chunks: {slice_chunks}")
-        slice_chunks.extend(self.zarr_arr.chunks[slab_axis+1:])
-        logger.info(f"Slice chunks extended: {slice_chunks}")
-
+        slice_chunks = z_arr.chunks
+        if self.optimize_reads:
+            logger.info("Optimizing read chunking...")
+            # TODO: this works for some cases, doesn't work in others, need to understand why
+            #slicing
+            #(c, z, y, x) or (z, y, x) - combine (c, z) from zarr_chunks and (y, x) from tiff chunking
+            logger.info(f"Output Zarr array chunks: {z_arr.chunks}")
+            logger.info(f"Input Tiff array chunks: {self.zarr_arr.chunks}")
+            slice_chunks = list(z_arr.chunks[:slab_axis+1]).copy()
+            logger.info(f"Slice chunks: {slice_chunks}")
+        
+            # cast slab size to write into zarr:
+            for zarr_chunkdim, tiff_chunkdim, tiff_dim in zip(z_arr.chunks[slab_axis+1:], self.zarr_arr.chunks[slab_axis+1:], self.zarr_arr.shape[slab_axis+1:]):
+                if tiff_chunkdim < zarr_chunkdim:
+                    slice_chunks.append(zarr_chunkdim)
+                elif tiff_chunkdim/tiff_dim < 0.5:
+                    slice_chunks.append(int(tiff_chunkdim/zarr_chunkdim)*zarr_chunkdim)
+                else:
+                    slice_chunks.append(tiff_dim)
+            
+            logger.info(f"Slice chunks extended: {slice_chunks}")
+        
+        # compute size of the slab 
+        slab_size_bytes = np.prod(slice_chunks) * np.dtype(self.dtype).itemsize
+        
+        # get dask worker allocated memery size
+        dask_worker_memory_bytes = next(iter(client.scheduler_info()["workers"].values()))["memory_limit"]
+        
+        logger.info(f"Slab size: {slab_size_bytes / 1e9} GB")
+        logger.info(f"Dask memory limit: {dask_worker_memory_bytes / 1e9} GB")
+        if slab_size_bytes > dask_worker_memory_bytes:
+            raise ValueError("Tiff segment size exceeds Dask worker memory limit. Please reduce the chunksize of the output array.")
+        
         logger.info(f"Zarr array shape: {self.zarr_arr.shape}")
         normalized_chunks = normalize_chunks(slice_chunks, shape=self.zarr_arr.shape)
-        logger.info(f"Normalized chunks: {normalized_chunks}")
         slice_tuples = slices_from_chunks(normalized_chunks)
 
         src_path = copy.copy(self.src_path)
@@ -85,11 +104,11 @@ class Tiff(Volume):
         fut = client.map(
             lambda v: write_volume_slab_to_zarr(v, z_arr, src_path), slice_tuples
         )
-        logger.info(f"Submitted {len(slice_tuples)} tasks to the scheduler in {time.time()- start}s")
+        logger.info(f"Submitted {len(slice_tuples)} tasks to the scheduler in {round(time.time()- start, 4)}s")
 
         # wait for all the futures to complete
         result = wait(fut)
-        logger.info(f"Completed {len(slice_tuples)} tasks in {time.time() - start}s")
+        logger.info(f"Completed {len(slice_tuples)} tasks in {round(time.time() - start, 2)}s")
 
         return 0
 
