@@ -88,9 +88,9 @@ class Volume:
         
 
     # TODO: Rewrite heuristic algorithm for downsampling factors to normalize voxel size
-    def get_downsampling_factors(self, shape, axes_order, min_ratio=0.5, max_ratio=2.0, high_aspect_ratio=False):
+    def get_downsampling_factors(self, scn_level_up, axes_order, min_ratio=0.5, max_ratio=2.0, high_aspect_ratio=False):
         """
-        Calculate adaptive downsampling factors based on aspect ratios.
+        Calculate adaptive downsampling factors based on aspect ratios of the voxel size.
         
         Args:
             shape: Array shape (c, z, y, x)
@@ -105,7 +105,7 @@ class Volume:
             return [ 1 if axis in ['c', 't'] else 2 for axis in axes_order]
         else:
             # Get spatial dimensions (skip channel and time)
-            spatial_dims = list((axis, shape[i]) for i, axis in enumerate(axes_order) if axis not in ['c', 't'])
+            spatial_dims = list((axis, scn_level_up[i]) for i, axis in enumerate(axes_order) if axis not in ['c', 't'])
             
             axes, dimensions = zip(*spatial_dims)
         
@@ -171,7 +171,7 @@ class Volume:
             if custom_scale_factors:
                 scaling_factors = tuple(int(sc_cur/sc_prev) for sc_prev, sc_cur in zip(custom_scale_factors[level-1], custom_scale_factors[level]))
             else:
-                scaling_factors = self.get_downsampling_factors(source_arr.shape, axes_order, high_aspect_ratio=normalize_voxel_size)
+                scaling_factors = self.get_downsampling_factors(scn_level_up, axes_order, high_aspect_ratio=normalize_voxel_size)
 
             dest_shape = [math.floor(dim / scaling) for dim, scaling in zip(source_arr.shape, scaling_factors)]
 
