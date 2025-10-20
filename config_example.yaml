@@ -4,8 +4,8 @@ dest : "/path_to_output/output_file.zarr" # zarr container path
 # Dask configs
 cluster : local # "local"/"lsf" cluster
 workers : 20 # number of dask workers
-log_dir : # specify log directory, otherwise get an email from each worker
-extra_directives : null # pass extra dask options
+log_dir : "/path/to/log/directory" # dask log directory
+extra_directives : ["-P myproject"] # pass extra dask options
 
 # Output zarr array configs
 zarr_chunks : [128, 128, 128] # output chunksize 

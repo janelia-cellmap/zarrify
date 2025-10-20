@@ -16,45 +16,51 @@ pixi run dev-install
 
 ## Usage
 
-### Step 1: Convert image to OME-Zarr format
+### Using Configuration Files (Recommended)
 
-To convert an OME-TIFF image with axes ZCYX:
-
-```
-pixi run zarrify --src=/path/to/input --dest=/path/to/output.zarr   --axes z c y x --units nanometer '' nanometer nanometer --zarr_chunks 64 3 128 128
-```
-
-### Step 2: Add multiscale pyramid
-
-To add multiscale pyramids to the above OME-Zarr:
-
-```
-pixi run zarr-multiscale --config=/path/to/config.yaml
-```
-
-Where `config.yaml` contains the parameters, e.g.:
+Create a YAML configuration file with your conversion parameters:
 
 ```yaml
-src: "/path/to/output.zarr"
-workers: 50
-data_origin: "raw"
-cluster: "lsf"
-log_dir: "/path/to/logs/workers"
+# config.yaml
+src: "/path/to/input/file"
+dest: "/path/to/output.zarr"
+workers: 100
+cluster: "local"  # or "lsf"
+
+# Zarr array configuration
+zarr_chunks: [3, 64, 128, 128]
+axes: ["c", "z", "y", "x"]
+translation: [0.0, 0.0, 0.0, 0.0]
+scale: [1.0, 1.0, 0.116, 0.116]
+units: ["", "nanometer", "nanometer", "nanometer"]
+optimize_reads: true
+
+# Multiscale options (optional)
+multiscale: false
+ms_workers: 100
+data_origin: "raw"  # or "labels"
 antialiasing: false
-high_aspect_ratio: false
-custom_scale_factors: 
-  - [1, 1, 1, 1]
-  - [1, 1, 2, 2]
-  - [1, 1, 4, 4]
-  - [1, 1, 8, 8]
-  - [1, 2, 16, 16]
-  - [1, 4, 32, 32]
-  - [1, 8, 64, 64]
-  - [1, 16, 128, 128]
-  - [1, 32, 256, 256]
-  - [1, 64, 512, 512]
-  - [1, 128, 1024, 1024]
+normalize_voxel_size: false
+custom_scale_factors : null
+
+# LSF cluster options (if using cluster: "lsf")
+log_dir: "/path/to/log/directory"
+extra_directives: ["-P myproject"]
 ```
+
+Then run:
+
+```bash
+pixi run zarrify --config config.yaml
+```
+
+You can also override specific config values from the command line:
+
+```bash
+pixi run zarrify --config config.yaml --workers 200 --scale 1.0 1.0 0.058 0.058
+```
+
+
 
 ### IBM Platform LSF 
 
