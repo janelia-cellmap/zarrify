@@ -86,8 +86,15 @@ class Tiff(Volume):
         # compute size of the slab 
         slab_size_bytes = np.prod(slice_chunks) * np.dtype(self.dtype).itemsize
         
-        # get dask worker allocated memery size
-        dask_worker_memory_bytes = next(iter(client.scheduler_info()["workers"].values()))["memory_limit"]
+        # get dask worker allocated memory size
+        # Wait for at least one worker to be available
+        try:
+            client.wait_for_workers(n_workers=1, timeout=30)  # Wait up to 30 seconds for 1 worker
+            workers_info = client.scheduler_info()["workers"]
+            dask_worker_memory_bytes = next(iter(workers_info.values()))["memory_limit"]
+
+        except Exception as e:
+            logger.warning(f"Failed to get worker memory info: {e}")
         
         logger.info(f"Slab size: {slab_size_bytes / 1e9} GB")
         logger.info(f"Dask memory limit: {dask_worker_memory_bytes / 1e9} GB")
