@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator, model_validator
-from typing import Optional, Literal, List, Tuple
+from typing import Union, Optional, Literal, List, Tuple
 import math
 import zarr
 import click
@@ -15,7 +15,7 @@ class ZarrifyConfig(BaseModel):
     workers: int = 100
     cluster: Optional[str] = None
     log_dir: Optional[str] = None
-    extra_directives: Optional[List[str]] = None
+    extra_directives: Optional[Union[List[str], Tuple[str, ...]]]  = []
     
     zarr_chunks: List[int] = [3, 64, 128, 128]
     axes: List[str] = ["c", "z", "y", "x"]
@@ -135,7 +135,7 @@ def validate_config(config, **kwargs):
         
         # Override config with CLI arguments (CLI takes precedence)
         for key, value in kwargs.items():
-            if value is not None: 
+            if value not in (None, (), [], {}): 
                 config_data[key] = value
         
         # Validate config

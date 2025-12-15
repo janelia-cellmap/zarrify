@@ -25,12 +25,10 @@ def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None,
         raise ValueError("Cluster type must be specified")
     elif cluster_type == "lsf":
         num_cores = 1
-        # Use provided job_extra_directives or default to ["-P scicompsoft"]
         if job_extra_directives is None:
-            job_extra_directives = ["-P scicompsoft"]
+            job_extra_directives = []
         else:
             job_extra_directives = list(job_extra_directives)
-        
         cluster = LSFCluster(
             cores=num_cores,
             processes=num_cores,
