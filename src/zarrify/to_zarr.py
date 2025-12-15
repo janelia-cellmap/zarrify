@@ -91,10 +91,6 @@ def to_zarr(src : str,
         units (list[str], optional): physical units. Defaults to ['']+['nanometer']*3.
     """
     dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
-    logger.info(f"Input dataset: {type(dataset)}")
-    logger.info(f"Input dataset shape: {dataset.shape}")
-    logger.info(f"Input dataset dtype: {dataset.dtype}")
-    logger.info(f"Input dataset ndim: {dataset.ndim}")
     
     # Handle N5Group separately as it has custom zarr creation logic
     if isinstance(dataset, N5Group):
@@ -106,56 +102,60 @@ def to_zarr(src : str,
         # populate zarr metadata
         dataset.add_ome_metadata(dest)
         return
-    
-    # Reshape chunks to match data dimensionality
-    logger.info(f"Zarr chunks: {zarr_chunks}")
-    if len(zarr_chunks) != len(dataset.shape):
-        logger.info(f"Reshaping chunks to match data dimensionality")
-        zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
-        logger.info(f"Reshaped chunks: {zarr_chunks}")
-        
-    # check multiscale custom scale parameters before expensive data copying
-    if multiscale:
-        if not ms_workers:
-            ms_workers = workers
-        if not data_origin:
-            raise ValueError('Data origin (raw/labels) is not specified')
-        
-        if custom_scale_factors:    
-            if any([int(s0_dim/ sc) > 32 for s0_dim, sc in zip(dataset.shape, custom_scale_factors[-1])]):
-                raise ValueError('Not enough custom scale levels to generate full multiscale pyramid')
+    else:
+        logger.info(f"Input dataset: {type(dataset)}")
+        logger.info(f"Input dataset shape: {dataset.shape}")
+        logger.info(f"Input dataset dtype: {dataset.dtype}")
+        logger.info(f"Input dataset ndim: {dataset.ndim}")
+        # Reshape chunks to match data dimensionality
+        logger.info(f"Zarr chunks: {zarr_chunks}")
+        if len(zarr_chunks) != len(dataset.shape):
+            logger.info(f"Reshaping chunks to match data dimensionality")
+            zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
+            logger.info(f"Reshaped chunks: {zarr_chunks}")
+            
+        # check multiscale custom scale parameters before expensive data copying
+        if multiscale:
+            if not ms_workers:
+                ms_workers = workers
+            if not data_origin:
+                raise ValueError('Data origin (raw/labels) is not specified')
+            
+            if custom_scale_factors:    
+                if any([int(s0_dim/ sc) > 32 for s0_dim, sc in zip(dataset.shape, custom_scale_factors[-1])]):
+                    raise ValueError('Not enough custom scale levels to generate full multiscale pyramid')
 
-    z_store = zarr.NestedDirectoryStore(dest)
-    z_root = zarr.open(store=z_store, mode="a")
+        z_store = zarr.NestedDirectoryStore(dest)
+        z_root = zarr.open(store=z_store, mode="a")
 
-    # Create zarr array externally
-    zarr_array = create_output_array(z_root, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
-    logger.info(f"Created output Zarr: {zarr_array}")
+        # Create zarr array externally
+        zarr_array = create_output_array(z_root, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
+        logger.info(f"Created output Zarr: {zarr_array}")
 
-    # Populate zarr metadata
-    full_scale_group_name = zarr_array.name.lstrip('/')
-    dataset.add_ome_metadata(dest, full_scale_group_name)
-    logger.info(f"Added OME-Zarr metadata")
+        # Populate zarr metadata
+        full_scale_group_name = zarr_array.name.lstrip('/')
+        dataset.add_ome_metadata(dest, full_scale_group_name)
+        logger.info(f"Added OME-Zarr metadata")
 
-    # Write data using new signature
-    logger.info(f"Writing data to Zarr arrays...")
-    client.cluster.scale(workers)
-    dataset.write_to_zarr(zarr_array, client)
-    client.cluster.scale(0)
-    logger.info(f"Completed writing all data to Zarr arrays")
-    
-    # create multiscale
-    if multiscale:
-        logger.info(f"create multiscale pyramid")
-        client.cluster.scale(ms_workers)
-        dataset.create_multiscale(z_root,
-                                client,
-                                data_origin,
-                                antialiasing,
-                                normalize_voxel_size,
-                                custom_scale_factors)
+        # Write data using new signature
+        logger.info(f"Writing data to Zarr arrays...")
+        client.cluster.scale(workers)
+        dataset.write_to_zarr(zarr_array, client)
         client.cluster.scale(0)
-        logger.info(f"Completed multiscal pyramid creation")
+        logger.info(f"Completed writing all data to Zarr arrays")
+        
+        # create multiscale
+        if multiscale:
+            logger.info(f"create multiscale pyramid")
+            client.cluster.scale(ms_workers)
+            dataset.create_multiscale(z_root,
+                                    client,
+                                    data_origin,
+                                    antialiasing,
+                                    normalize_voxel_size,
+                                    custom_scale_factors)
+            client.cluster.scale(0)
+            logger.info(f"Completed multiscal pyramid creation")
         
     
 
@@ -239,12 +239,10 @@ def to_zarr(src : str,
 #def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
 def cli(config, **kwargs):
     logger.info(f"Starting Zarrify...")
-    
     if config:
         configs = validate_config(config, **kwargs)
     else:
-        configs = {k: v for k, v in kwargs.items() if v is not None}
-    
+        configs = {k: v for k, v in kwargs.items() if v not in (None, (), [], {})}
     
     # create a dask client to submit tasks
     client = initialize_dask_client(configs['cluster'],
