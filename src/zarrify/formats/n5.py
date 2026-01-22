@@ -145,20 +145,6 @@ class N5Group(Volume):
         self.normalize_groupspec(spec_n5_dict, comp)
         spec_n5 = pz.GroupSpec(**spec_n5_dict)
         return spec_n5.to_zarr(z_store, path= '')
-        
-    
-    #creates attributes.json, if missing 
-    def reconstruct_json(self, n5src):
-        dir_list = os.listdir(n5src)
-        if "attributes.json" not in dir_list:
-            with open(os.path.join(n5src,"attributes.json"), "w") as jfile:
-                dict = {"n5": "2.0.0"}
-                jfile.write(json.dumps(dict, indent=4))
-        for obj in dir_list:
-            if os.path.isdir(os.path.join(n5src, obj)):
-                self.reconstruct_json(os.path.join(n5src, obj))
-
-    
     
     def save_chunk(
         self,
