@@ -3,6 +3,7 @@ from dask.distributed import Client, LocalCluster
 import os
 import sys
 import logging
+import dask
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,11 +25,12 @@ def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None,
     if cluster_type == None:
         raise ValueError("Cluster type must be specified")
     elif cluster_type == "lsf":
-        num_cores = 1
+        dask.config.set({"jobqueue.lsf.cancel-command": "bkill -d"})
         if job_extra_directives is None:
             job_extra_directives = []
         else:
             job_extra_directives = list(job_extra_directives)
+        num_cores = 1
         cluster = LSFCluster(
             cores=num_cores,
             processes=num_cores,
