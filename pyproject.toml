@@ -29,12 +29,13 @@ dependencies = [
     "numcodecs>=0.15.1,<0.16.1",
     "numpy>=1.26.2",
     "pydantic>=2.11.7,<3",
-    "pydantic-zarr>=0.4.0,<0.9.0",
+    "pydantic-zarr>=0.9.0",
     "pint>=0.20.0,<1.0.0",
     "scipy>=1.16.1",
+    "tensorstore>=0.1.71",
     "tifffile>=2024.1.0,<2025.5.10",
     "xarray-multiscale>=2.1.0",
-    "zarr>=2.18.3,<3.0"
+    "zarr>=3.0"
 ]
 
 [project.scripts]
