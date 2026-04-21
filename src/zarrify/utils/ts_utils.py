@@ -7,6 +7,8 @@ a single handle across process boundaries.
 
 from __future__ import annotations
 
+import numpy as np
+
 
 # ---------------------------------------------------------------------------
 # Codec constructors — return TensorStore zarr3 codec dicts
@@ -34,15 +36,14 @@ def blosc_codec(
     Parameters
     ----------
     cname:
-        Internal compressor. One of ``"lz4"``, ``"lz4hc"``, ``"blosclz"``,
-        ``"zstd"``, ``"snappy"``, ``"zlib"``.
+        Internal compressor. One of "lz4", "lz4hc", "blosclz",
+        "zstd", "snappy", "zlib".
     clevel:
         Compression level (0–9).
     shuffle:
-        Byte-shuffle filter. One of ``"noshuffle"``, ``"shuffle"``,
-        ``"bitshuffle"``.
+        Byte-shuffle filter. One of "noshuffle", "shuffle", "bitshuffle".
     blocksize:
-        Block size in bytes. ``0`` lets Blosc choose automatically.
+        Block size in bytes. 0 lets Blosc choose automatically.
     """
     return {
         "name": "blosc",
@@ -91,3 +92,88 @@ def _build_codecs(codec: dict, chunk_shape: list[int] | None) -> list[dict]:
             },
         }
     ]
+
+
+# ---------------------------------------------------------------------------
+# Spec builders
+# ---------------------------------------------------------------------------
+
+def zarr3_spec(
+    store_path: str,
+    array_path: str,
+    shape: tuple[int, ...] | None = None,
+    dtype: np.dtype | None = None,
+    chunk_shape: list[int] | None = None,
+    shard_shape: list[int] | None = None,
+    codec: dict | None = None,
+    *,
+    create: bool = False,
+) -> dict:
+    """Build a TensorStore zarr3 driver spec.
+
+    When *create* is True, *shape*, *dtype*, and *chunk_shape* are required.
+    The spec always sets open=True so an existing array is opened rather than
+    raising an error.
+
+    Sharding is enabled by passing *shard_shape*. In that case *shard_shape*
+    defines the outer chunk grid — each shard is a single object on disk —
+    while *chunk_shape* defines the inner data chunks stored inside each shard.
+    Without *shard_shape*, *chunk_shape* is used as the chunk grid directly.
+
+    Parameters
+    ----------
+    store_path:
+        Absolute path to the zarr store root directory on the local filesystem.
+    array_path:
+        Path of the array relative to *store_path* (e.g. "s0").
+    shape:
+        Array dimensions. Required when *create* is True.
+    dtype:
+        NumPy dtype for the array. Required when *create* is True.
+    chunk_shape:
+        Chunk shape. Required when *create* is True. When *shard_shape* is
+        also given, this is the inner chunk stored inside each shard; otherwise
+        it is the chunk grid directly.
+    shard_shape:
+        Outer shard shape. When provided, enables sharding: each shard covers
+        this region on disk and is subdivided into *chunk_shape* inner chunks.
+    codec:
+        Compression codec dict as returned by :func:`zstd_codec`,
+        :func:`blosc_codec`, or :func:`gzip_codec`. Defaults to
+        zstd_codec(level=6).
+    create:
+        When True, embed creation metadata so ts.open(spec) creates the array
+        on disk if absent.
+
+    Returns
+    -------
+    dict
+        A picklable TensorStore spec suitable for passing to ts.open().
+    """
+    spec: dict = {
+        "driver": "zarr3",
+        "kvstore": {"driver": "file", "path": store_path},
+        "path": array_path,
+        "open": True,
+    }
+
+    if create:
+        if shape is None or dtype is None or chunk_shape is None:
+            raise ValueError("shape, dtype, and chunk_shape are required when create=True")
+
+        outer_shape = shard_shape if shard_shape is not None else chunk_shape
+        resolved_codec = codec if codec is not None else zstd_codec()
+
+        spec["create"] = True
+        spec["metadata"] = {
+            "shape": list(shape),
+            "chunk_grid": {
+                "name": "regular",
+                "configuration": {"chunk_shape": outer_shape},
+            },
+            "data_type": np.dtype(dtype).name,
+            "codecs": _build_codecs(resolved_codec, chunk_shape if shard_shape is not None else None),
+            "fill_value": 0,
+        }
+
+    return spec
