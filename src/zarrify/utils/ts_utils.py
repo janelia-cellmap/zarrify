@@ -76,9 +76,20 @@ _BYTES_CODEC = {"name": "bytes", "configuration": {"endian": "little"}}
 _CRC32C_CODEC = {"name": "crc32c"}
 
 
-def _build_codecs(codec: dict, chunk_shape: list[int] | None) -> list[dict]:
-    """Return the zarr3 codecs list, wrapping with sharding_indexed when *chunk_shape* is given."""
-    data_codecs = [_BYTES_CODEC, codec]
+def _build_codecs(
+    codec: dict,
+    chunk_shape: list[int] | None,
+    checksum: bool = True,
+) -> list[dict]:
+    """Return the zarr3 codecs list, wrapping with sharding_indexed when *chunk_shape* is given.
+
+    When *checksum* is True a CRC32C codec is appended to the data codec chain
+    so that corruption in the stored (compressed) bytes is detected on read.
+    The shard index always includes CRC32C regardless of this flag.
+    """
+    data_codecs: list[dict] = [_BYTES_CODEC, codec]
+    if checksum:
+        data_codecs.append(_CRC32C_CODEC)
 
     if chunk_shape is None:
         return data_codecs
@@ -107,6 +118,7 @@ def zarr3_spec(
     chunk_shape: list[int] | None = None,
     shard_shape: list[int] | None = None,
     codec: dict | None = None,
+    checksum: bool = True,
     *,
     create: bool = False,
 ) -> dict:
@@ -142,6 +154,10 @@ def zarr3_spec(
         Compression codec dict as returned by :func:`zstd_codec`,
         :func:`blosc_codec`, or :func:`gzip_codec`. Defaults to
         zstd_codec(level=6).
+    checksum:
+        When True (default), appends a CRC32C codec to the data codec chain so
+        that corruption in stored bytes is detected on read. The shard index
+        always includes CRC32C regardless of this flag.
     create:
         When True, embed creation metadata so ts.open(spec) creates the array
         on disk if absent.
@@ -173,7 +189,7 @@ def zarr3_spec(
                 "configuration": {"chunk_shape": outer_shape},
             },
             "data_type": np.dtype(dtype).name,
-            "codecs": _build_codecs(resolved_codec, chunk_shape if shard_shape is not None else None),
+            "codecs": _build_codecs(resolved_codec, chunk_shape if shard_shape is not None else None, checksum),
             "fill_value": 0,
         }
 

@@ -10,6 +10,7 @@ def create_output_array(
     chunk_shape: list[int],
     shard_shape: list[int] | None = None,
     codec: dict = zstd_codec(level=6),
+    checksum: bool = True,
     array_path: str = "s0",
 ) -> object:
     """Create and open a zarr3 output array via TensorStore.
@@ -29,6 +30,9 @@ def create_output_array(
         Outer shard shape. When provided, enables sharding.
     codec:
         Compression codec dict. Defaults to zstd_codec(level=6).
+    checksum:
+        When True (default), appends CRC32C to the codec chain to detect
+        on-disk corruption at read time.
     array_path:
         Path of the array within the store. Defaults to "s0".
 
@@ -45,6 +49,7 @@ def create_output_array(
         chunk_shape=chunk_shape,
         shard_shape=shard_shape,
         codec=codec,
+        checksum=checksum,
         create=True,
     )
     return open_ts(spec)
