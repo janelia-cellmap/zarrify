@@ -1,17 +1,17 @@
-import zarr
-import mrcfile
-import os
+import copy
+import logging
+import time
 from typing import Tuple
-from dask.array.core import slices_from_chunks, normalize_chunks
+
+import mrcfile
+import numpy as np
+from dask.array.core import normalize_chunks, slices_from_chunks
 from dask.distributed import Client, wait
 from toolz import partition_all
-import time
+
+from zarrify.utils.ts_utils import open_ts
 from zarrify.utils.volume import Volume
-from abc import ABCMeta
-from numcodecs import Zstd
-import logging
-import copy
-import numpy as np
+
 
 class Mrc3D(Volume):
 
@@ -23,10 +23,20 @@ class Mrc3D(Volume):
         translation: list[float],
         units: list[str],
     ):
-        """Construct all the necessary attributes for the proper conversion of tiff to OME-NGFF Zarr.
+        """Initialize an MRC volume reader.
 
-        Args:
-            input_filepath (str): path to source tiff file.
+        Parameters
+        ----------
+        src_path:
+            Path to the source MRC file.
+        axes:
+            Axis names (e.g. ["z", "y", "x"]).
+        scale:
+            Voxel size along each axis.
+        translation:
+            Spatial offset along each axis.
+        units:
+            Physical unit for each axis (e.g. ["nm", "nm", "nm"]).
         """
         super().__init__(src_path, axes, scale, translation, units)
 
@@ -35,51 +45,63 @@ class Mrc3D(Volume):
         self.shape = np.squeeze(self.memmap.data.shape)
         self.dtype = self.memmap.data.dtype
 
+    def write_to_zarr(self, dst_spec: dict, client: Client) -> None:
+        """Read the MRC file in chunks and write each chunk to a zarr3 array via TensorStore.
 
-    def write_to_zarr(
-        self,
-        zarr_array: zarr.Array,
-        client: Client,
-    ):
-        """Use mrcfile memmap to access small parts of the mrc file and write them into zarr chunks.
+        Chunks that are entirely zero are skipped to avoid unnecessary writes.
 
-        Args:
-            dest_path (str): path to the zarr group where the output dataset is stored.
-            client (Client): instance of a dask client
+        Parameters
+        ----------
+        dst_spec:
+            TensorStore zarr3 spec dict for the destination array, as returned
+            by :func:`~zarrify.utils.ts_utils.zarr3_spec`.
+        client:
+            Dask distributed client used to parallelise chunk writes.
         """
-        
-        logging.basicConfig(level=logging.INFO, 
-                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
 
         src_path = copy.copy(self.src_path)
-        
-        z_arr = zarr_array
-        
+        dest_arr = open_ts(dst_spec)
+
+        # Use write_chunk (shard shape when sharding, chunk shape otherwise) so
+        # each Dask task writes one complete on-disk object.
+        dest_chunks = dest_arr.chunk_layout.write_chunk.shape
+
         out_slices = slices_from_chunks(
-            normalize_chunks(z_arr.chunks, shape=z_arr.shape)
+            normalize_chunks(dest_chunks, shape=tuple(dest_arr.shape))
         )
         out_slices_partitioned = tuple(partition_all(100000, out_slices))
 
         for idx, part in enumerate(out_slices_partitioned):
-
             logging.info(f"{idx + 1} / {len(out_slices_partitioned)}")
             start = time.time()
-            fut = client.map(lambda v: save_chunk(src_path, z_arr, v), part)
+            fut = client.map(lambda v: save_chunk(src_path, dst_spec, v), part)
             logging.info(
-                f"Submitted {len(part)} tasks to the scheduler in {time.time()- start}s"
+                f"Submitted {len(part)} tasks to the scheduler in {time.time() - start:.2f}s"
             )
-            # wait for all the futures to complete
-            result = wait(fut)
-            logging.info(f"Completed {len(part)} tasks in {time.time() - start}s")
+            wait(fut)
+            logging.info(f"Completed {len(part)} tasks in {time.time() - start:.2f}s")
 
-def save_chunk(src_path, z_arr: zarr.Array, chunk_slice: Tuple[slice, ...]):
-    """Copies data from a particular part of the input mrc array into a specific chunk of the output zarr array.
 
-    Args:
-        z_arr (zarr.core.Array): output zarr array object
-        chunk_slice (Tuple[slice, ...]): slice of the mrc array to copy.
+def save_chunk(src_path: str, dst_spec: dict, chunk_slice: Tuple[slice, ...]) -> None:
+    """Copy one chunk from an MRC file into a zarr3 TensorStore array.
+
+    Chunks that are entirely zero are skipped to avoid unnecessary I/O.
+
+    Parameters
+    ----------
+    src_path:
+        Path to the source MRC file.
+    dst_spec:
+        TensorStore zarr3 spec dict for the destination array.
+    chunk_slice:
+        The slice tuple identifying the chunk region to copy.
     """
     mrc_file = mrcfile.mmap(src_path, mode="r")
-
-    if not (mrc_file.data[chunk_slice] == 0).all():
-        z_arr[chunk_slice] = mrc_file.data[chunk_slice]
+    data = mrc_file.data[chunk_slice]
+    if not (data == 0).all():
+        dest_arr = open_ts(dst_spec)
+        dest_arr[chunk_slice].write(data).result()
