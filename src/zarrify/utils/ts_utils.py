@@ -8,6 +8,7 @@ a single handle across process boundaries.
 from __future__ import annotations
 
 import numpy as np
+import tensorstore as ts
 
 
 # ---------------------------------------------------------------------------
@@ -177,3 +178,66 @@ def zarr3_spec(
         }
 
     return spec
+
+
+def n5_spec(store_path: str, array_path: str) -> dict:
+    """Build a TensorStore N5 driver spec for reading an N5 array.
+
+    Parameters
+    ----------
+    store_path:
+        Absolute path to the N5 store root directory on the local filesystem.
+    array_path:
+        Dataset path relative to *store_path* (e.g. "volumes/raw/s0").
+
+    Returns
+    -------
+    dict
+        A picklable TensorStore spec suitable for passing to ts.open().
+    """
+    return {
+        "driver": "n5",
+        "kvstore": {"driver": "file", "path": store_path},
+        "path": array_path,
+        "open": True,
+    }
+
+
+def zarr2_spec(store_path: str, array_path: str) -> dict:
+    """Build a TensorStore zarr (v2) driver spec for reading an existing array.
+
+    Parameters
+    ----------
+    store_path:
+        Absolute path to the zarr v2 store root directory on the local filesystem.
+    array_path:
+        Path of the array relative to *store_path* (e.g. "s0").
+
+    Returns
+    -------
+    dict
+        A picklable TensorStore spec suitable for passing to ts.open().
+    """
+    return {
+        "driver": "zarr",
+        "kvstore": {"driver": "file", "path": store_path},
+        "path": array_path,
+        "open": True,
+    }
+
+
+def open_ts(spec: dict) -> ts.TensorStore:
+    """Open a TensorStore array synchronously from *spec*.
+
+    Parameters
+    ----------
+    spec:
+        A TensorStore spec dict as returned by :func:`zarr3_spec`,
+        :func:`n5_spec`, or :func:`zarr2_spec`.
+
+    Returns
+    -------
+    ts.TensorStore
+        The opened (or created) TensorStore array.
+    """
+    return ts.open(spec).result()
