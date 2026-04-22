@@ -220,16 +220,23 @@ class N5Group(Volume):
                     self.normalize_to_omengff(zgroup[key])
                 if 'scales' in zgroup[key].attrs.asdict():
                     zattrs = self.apply_ome_template(zgroup[key])
-                    zarrays = zgroup[key].arrays(recurse=True)
-
                     unsorted_datasets = []
-                    for arr in zarrays:
+                    for arr in self._iter_arrays(zgroup[key]):
                         unsorted_datasets.append(self.ome_dataset_metadata(arr[1], zgroup[key]))
 
                     #1.apply natural sort to organize datasets metadata array for different resolution degrees (s0 -> s10)
                     #2.add datasets metadata to the omengff template
                     zattrs['multiscales'][0]['datasets'] = natsort.natsorted(unsorted_datasets, key=itemgetter(*['path']))
                     zgroup[key].attrs['multiscales'] = zattrs['multiscales']
+
+    @staticmethod
+    def _iter_arrays(group: zarr.Group):
+        """Yield (name, Array) pairs recursively from *group* (zarr v3 compat)."""
+        for name, node in group.members():
+            if isinstance(node, zarr.Array):
+                yield name, node
+            elif isinstance(node, zarr.Group):
+                yield from N5Group._iter_arrays(node)
 
     @staticmethod
     def ome_dataset_metadata(n5arr: zarr.Array, group: zarr.Group) -> dict:
