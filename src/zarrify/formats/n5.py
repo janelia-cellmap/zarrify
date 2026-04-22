@@ -190,7 +190,7 @@ class N5Group(Volume):
 
         # normalize input units, i.e. 'meter' or 'm'-> 'meter'
         ureg = pint.UnitRegistry()
-        units_list = [ureg.Unit(unit) for unit in zgroup.attrs['units']]
+        units_list = [str(ureg.Unit(unit)) for unit in zgroup.attrs['units']]
 
         #populate .zattrs
         z_attrs['multiscales'][0]['axes'] = [{"name": axis,
