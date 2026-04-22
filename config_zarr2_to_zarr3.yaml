@@ -1,0 +1,29 @@
+src: "/path/to/input.zarr"   # zarr v2 store (must contain .zgroup)
+dest: "/path/to/output.zarr"
+
+# Dask / LSF
+cluster: lsf
+workers: 100
+log_dir: "/path/to/lsf/logs"
+extra_directives:
+  - "-P myproject"
+  # - "-q short"   # queue override if needed
+
+# Output zarr3 array layout
+zarr_chunks: [1, 64, 128, 128]   # inner chunk shape — tune to your data
+shard_shape: null                 # e.g. [1, 512, 512, 512] to enable sharding; each dim must be >= zarr_chunks
+codec: zstd                       # zstd | gzip | blosc
+codec_level: 3                    # zstd default: 3, gzip default: 6, blosc default: 5
+axes: [c, z, y, x]
+scale: [1.0, 8.0, 8.0, 8.0]
+translation: [0.0, 0.0, 0.0, 0.0]
+units: ["", nanometer, nanometer, nanometer]
+optimize_reads: false   # not applicable for zarr source
+
+# Multiscale pyramid
+multiscale: false
+ms_workers: 100
+data_origin: raw   # required field — "raw" or "labels"
+antialiasing: false
+normalize_voxel_size: false
+custom_scale_factors: null
