@@ -14,7 +14,7 @@ from zarrify.formats.tiff_stack import TiffStack
 from zarrify.formats.zarr2 import Zarr2Group
 from zarrify.utils.dask_utils import initialize_dask_client
 from zarrify.utils.pydantic_models import validate_config
-from zarrify.utils.ts_utils import zarr3_spec
+from zarrify.utils.ts_utils import build_codec, zarr3_spec
 from zarrify.utils.zarr_utils import create_output_array
 
 logging.basicConfig(
@@ -71,6 +71,7 @@ def to_zarr(src : str,
             client : Client,
             workers : int = 20,
             zarr_chunks : list[int] = [3, 128, 128, 128],
+            shard_shape : list[int] | None = None,
             axes : list[str] = ['c', 'z', 'y', 'x'],
             scale : list[float] = [1.0,]*4,
             translation : list[float] = [0.0,]*4,
@@ -81,7 +82,9 @@ def to_zarr(src : str,
             data_origin : str = None,
             antialiasing : bool = False,
             normalize_voxel_size : bool = False,
-            custom_scale_factors : str = None
+            custom_scale_factors : str = None,
+            codec : str = 'zstd',
+            codec_level : int | None = None,
             ):
     """Convert Tiff stack, 3D Tiff, N5, or MRC file to OME-Zarr.
 
@@ -95,14 +98,19 @@ def to_zarr(src : str,
         scale (list[float], optional): voxel size (in physical units). Defaults to [1.0,]*4.
         translation (list[float], optional): offset (in physical units). Defaults to [0.0,]*4.
         units (list[str], optional): physical units. Defaults to ['']+['nanometer']*3.
+        shard_shape (list[int] | None, optional): outer shard shape for sharded zarr3 arrays.
+        codec (str, optional): compression codec name ('zstd', 'gzip', 'blosc'). Defaults to 'zstd'.
+        codec_level (int | None, optional): codec compression level. None uses per-codec default.
     """
     dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
 
     # Handle N5Group separately as it has custom zarr creation logic
+    codec_dict = build_codec(codec, codec_level)
+
     if isinstance(dataset, N5Group):
         # N5 handles zarr creation internally due to tree structure complexity
         client.cluster.scale(workers)
-        dataset.write_to_zarr(dest, client, zarr_chunks)
+        dataset.write_to_zarr(dest, client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
         client.cluster.scale(0)
 
         # populate zarr metadata
@@ -111,7 +119,7 @@ def to_zarr(src : str,
 
     if isinstance(dataset, Zarr2Group):
         client.cluster.scale(workers)
-        dataset.write_to_zarr(str(dest), client, zarr_chunks)
+        dataset.write_to_zarr(str(dest), client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
         client.cluster.scale(0)
         return
     else:
@@ -139,7 +147,8 @@ def to_zarr(src : str,
 
         # Create output zarr3 array via TensorStore
         full_scale_arr_name = 's0'
-        create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks, array_path=full_scale_arr_name)
+        create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks,
+                            shard_shape=shard_shape, codec=codec_dict, array_path=full_scale_arr_name)
         dest_spec = zarr3_spec(store_path=dest, array_path=full_scale_arr_name)
         logger.info(f"Created output Zarr array at {dest}/{full_scale_arr_name}")
 
@@ -268,6 +277,7 @@ def cli(config, **kwargs):
             client=client,
             workers=configs['workers'],
             zarr_chunks=configs['zarr_chunks'],
+            shard_shape=configs.get('shard_shape'),
             axes=configs['axes'],
             scale=configs['scale'],
             translation=configs['translation'],
@@ -278,7 +288,9 @@ def cli(config, **kwargs):
             data_origin=configs['data_origin'],
             antialiasing=configs['antialiasing'],
             normalize_voxel_size=configs['normalize_voxel_size'],
-            custom_scale_factors=configs['custom_scale_factors']
+            custom_scale_factors=configs['custom_scale_factors'],
+            codec=configs.get('codec', 'zstd'),
+            codec_level=configs.get('codec_level'),
     )
     
 if __name__ == "__main__":
