@@ -1,10 +1,10 @@
 import copy
+import json
 import logging
 import os
 import time
 
 import numpy as np
-import zarr
 from dask.array.core import normalize_chunks, slices_from_chunks
 from dask.distributed import Client, wait
 from tifffile import imread
@@ -50,12 +50,16 @@ class Tiff(Volume):
         """
         super().__init__(src_path, axes, scale, translation, units)
 
-        self.zarr_store = imread(os.path.join(src_path), aszarr=True)
-        self.zarr_arr = zarr.open(self.zarr_store)
+        # Read array metadata directly from tifffile's zarr store without
+        # involving zarr.open (zarr v3 no longer accepts ZarrTiffStore).
+        _tiff_store = imread(os.path.join(src_path), aszarr=True)
+        _meta = json.loads(_tiff_store['.zarray'])
+        _tiff_store.close()
 
-        self.shape = self.zarr_arr.shape
-        self.dtype = self.zarr_arr.dtype
-        self.ndim = self.zarr_arr.ndim
+        self.shape = tuple(_meta['shape'])
+        self.dtype = np.dtype(_meta['dtype'])
+        self.ndim = len(self.shape)
+        self._tiff_chunks = tuple(_meta['chunks'])
         self.optimize_reads = optimize_reads
 
         # Trim metadata to match actual data dimensionality.
@@ -92,13 +96,13 @@ class Tiff(Volume):
         if self.optimize_reads:
             logger.info("Optimizing read chunking...")
             logger.info(f"Output zarr3 write-chunk shape: {dest_chunks}")
-            logger.info(f"Input TIFF chunk shape: {self.zarr_arr.chunks}")
+            logger.info(f"Input TIFF chunk shape: {self._tiff_chunks}")
             slice_chunks = dest_chunks[: slab_axis + 1].copy()
 
             for dest_chunkdim, tiff_chunkdim, tiff_dim in zip(
                 dest_chunks[slab_axis + 1:],
-                self.zarr_arr.chunks[slab_axis + 1:],
-                self.zarr_arr.shape[slab_axis + 1:],
+                self._tiff_chunks[slab_axis + 1:],
+                self.shape[slab_axis + 1:],
             ):
                 if tiff_chunkdim < dest_chunkdim:
                     slice_chunks.append(dest_chunkdim)
@@ -127,7 +131,7 @@ class Tiff(Volume):
         except Exception as e:
             logger.warning(f"Could not retrieve worker memory info: {e}")
 
-        normalized_chunks = normalize_chunks(slice_chunks, shape=self.zarr_arr.shape)
+        normalized_chunks = normalize_chunks(slice_chunks, shape=self.shape)
         slice_tuples = slices_from_chunks(normalized_chunks)
         src_path = copy.copy(self.src_path)
 
@@ -146,9 +150,8 @@ class Tiff(Volume):
 def write_volume_slab(slice_tuple: tuple, dst_spec: dict, src_path: str) -> None:
     """Copy one slab from a TIFF file into a zarr3 TensorStore array.
 
-    The TIFF is opened via tifffile as an in-memory zarr store (no TensorStore
-    TIFF driver exists), read into NumPy, then written to the destination via
-    TensorStore.
+    The TIFF is read directly via tifffile into NumPy (no TensorStore TIFF
+    driver exists), then written to the destination via TensorStore.
 
     Parameters
     ----------
@@ -159,8 +162,6 @@ def write_volume_slab(slice_tuple: tuple, dst_spec: dict, src_path: str) -> None
     src_path:
         Path to the source TIFF file.
     """
-    tiff_store = imread(src_path, aszarr=True)
-    src_arr = zarr.open(tiff_store, mode="r")
-    data = np.asarray(src_arr[slice_tuple])
+    data = imread(src_path)[slice_tuple]
     dest_arr = open_ts(dst_spec)
-    dest_arr[slice_tuple].write(data).result()
+    dest_arr[slice_tuple].write(np.asarray(data)).result()
