@@ -11,6 +11,7 @@ from zarrify.formats.mrc import Mrc3D
 from zarrify.formats.n5 import N5Group
 from zarrify.formats.tiff import Tiff
 from zarrify.formats.tiff_stack import TiffStack
+from zarrify.formats.zarr2 import Zarr2Group
 from zarrify.utils.dask_utils import initialize_dask_client
 from zarrify.utils.pydantic_models import validate_config
 from zarrify.utils.ts_utils import zarr3_spec
@@ -52,6 +53,10 @@ def init_dataset(src :str,
 
     if ext=='.n5':
         return N5Group(*params)
+    elif ext == '.zarr':
+        if (src_path / '.zgroup').exists():
+            return Zarr2Group(*params)
+        raise ValueError(f"zarr v3 as source is not supported: {src}")
     elif src_path.is_dir():
         return TiffStack(*params)
     elif ext == ".mrc":
@@ -92,7 +97,7 @@ def to_zarr(src : str,
         units (list[str], optional): physical units. Defaults to ['']+['nanometer']*3.
     """
     dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
-    
+
     # Handle N5Group separately as it has custom zarr creation logic
     if isinstance(dataset, N5Group):
         # N5 handles zarr creation internally due to tree structure complexity
@@ -257,7 +262,7 @@ def cli(config, **kwargs):
             client=client,
             workers=configs['workers'],
             zarr_chunks=configs['zarr_chunks'],
-            axes=configs['axes'], 
+            axes=configs['axes'],
             scale=configs['scale'],
             translation=configs['translation'],
             units=configs['units'],
