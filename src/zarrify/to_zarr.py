@@ -1,19 +1,20 @@
-import zarr
-from numcodecs import Zstd
-from pathlib import Path
-import click
-import sys
-from dask.distributed import Client
+import logging
 import time
-from zarrify.formats.tiff_stack import TiffStack
-from zarrify.formats.tiff import Tiff
+from pathlib import Path
+from typing import Union
+
+import click
+import zarr
+from dask.distributed import Client
+
 from zarrify.formats.mrc import Mrc3D
 from zarrify.formats.n5 import N5Group
+from zarrify.formats.tiff import Tiff
+from zarrify.formats.tiff_stack import TiffStack
 from zarrify.utils.dask_utils import initialize_dask_client
-from zarrify.utils.zarr_utils import create_output_array
 from zarrify.utils.pydantic_models import validate_config
-from typing import Union
-import logging
+from zarrify.utils.ts_utils import zarr3_spec
+from zarrify.utils.zarr_utils import create_output_array
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,30 +126,30 @@ def to_zarr(src : str,
                 if any([int(s0_dim/ sc) > 32 for s0_dim, sc in zip(dataset.shape, custom_scale_factors[-1])]):
                     raise ValueError('Not enough custom scale levels to generate full multiscale pyramid')
 
-        z_store = zarr.NestedDirectoryStore(dest)
-        z_root = zarr.open(store=z_store, mode="a")
-
-        # Create zarr array externally
-        zarr_array = create_output_array(z_root, dataset.shape, dataset.dtype, zarr_chunks, Zstd(level=6))
-        logger.info(f"Created output Zarr: {zarr_array}")
+        # Create output zarr3 array via TensorStore
+        full_scale_arr_name = 's0'
+        create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks, array_path=full_scale_arr_name)
+        dest_spec = zarr3_spec(store_path=dest, array_path=full_scale_arr_name)
+        logger.info(f"Created output Zarr array at {dest}/{full_scale_arr_name}")
 
         # Populate zarr metadata
-        full_scale_group_name = zarr_array.name.lstrip('/')
-        dataset.add_ome_metadata(dest, full_scale_group_name)
+        dataset.add_ome_metadata(dest, full_scale_arr_name)
         logger.info(f"Added OME-Zarr metadata")
 
         # Write data using new signature
         logger.info(f"Writing data to Zarr arrays...")
         client.cluster.scale(workers)
-        dataset.write_to_zarr(zarr_array, client)
+        dataset.write_to_zarr(dest_spec, client)
         client.cluster.scale(0)
         logger.info(f"Completed writing all data to Zarr arrays")
-        
+
         # create multiscale
         if multiscale:
             logger.info(f"create multiscale pyramid")
+            z_root = zarr.open(zarr.storage.LocalStore(dest), mode='a')
             client.cluster.scale(ms_workers)
-            dataset.create_multiscale(z_root,
+            dataset.create_multiscale(dest,
+                                    z_root,
                                     client,
                                     data_origin,
                                     antialiasing,
