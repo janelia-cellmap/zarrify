@@ -194,40 +194,82 @@ class N5Group(Volume):
         self,
         dest: str,
         client: Client,
-        zarr_chunks : list[int],
-        comp : ABCMeta = Zstd(level=6),
-    ):
-        
-        logging.basicConfig(level=logging.INFO, 
-                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        chunk_shape: list[int],
+        shard_shape: list[int] | None = None,
+        codec: dict = zstd_codec(level=6),
+    ) -> None:
+        """Copy all N5 arrays into a zarr3 store via TensorStore.
+
+        The N5 hierarchy is first mirrored to the output store using
+        pydantic-zarr. Data is then copied chunk-by-chunk: each Dask task
+        reads one chunk from the N5 source via the TensorStore N5 driver and
+        writes it to the zarr3 destination via the TensorStore zarr3 driver.
+        All-zero chunks are skipped.
+
+        Parameters
+        ----------
+        dest:
+            Absolute path to the output zarr store root directory.
+        client:
+            Dask distributed client used to parallelise chunk copies.
+        chunk_shape:
+            Inner chunk shape for the output zarr3 arrays.
+        shard_shape:
+            Outer shard shape. When provided, enables sharding.
+        codec:
+            Compression codec dict. Defaults to zstd_codec(level=6).
+        """
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
 
         self.reconstruct_json(os.path.join(self.store_path, self.path))
-        
+
         # input n5 arrays list to convert
-        n5_root = zarr.open_group(self.n5_store, mode = 'r')
-        zarr_arrays = n5_root.arrays(recurse=True)
+        n5_root = zarr.open_group(self.n5_store, mode="r")
+        zarr_arrays = list(n5_root.arrays(recurse=True))
+
         # copy input n5 tree structure to output zarr and add ome-metadata, when N5 metadata is present
         z_store = zarr.storage.LocalStore(dest)
-        zg = self.copy_n5_tree(n5_root, z_store, comp)
-
+        zg = self.copy_n5_tree(n5_root, z_store, codec)
         self.normalize_to_omengff(zg)
-        
-        for item in zarr_arrays:
-            n5arr = item[1]
-            dest_arr = zarr.open_array(os.path.join(dest, n5arr.path), mode='a')
-            
-            out_slices = slices_from_chunks(normalize_chunks(dest_arr.chunks, shape=dest_arr.shape))
+
+        for _, n5arr in zarr_arrays:
+            src_spec = n5_spec(self.store_path, n5arr.path)
+            dst_spec = zarr3_spec(
+                store_path=dest,
+                array_path=n5arr.path,
+                shape=n5arr.shape,
+                dtype=n5arr.dtype,
+                chunk_shape=chunk_shape,
+                shard_shape=shard_shape,
+                codec=codec,
+                create=True,
+            )
+
+            dest_arr = open_ts(dst_spec)
+            dest_chunks = dest_arr.chunk_layout.write_chunk.shape
+
+            out_slices = slices_from_chunks(
+                normalize_chunks(dest_chunks, shape=n5arr.shape)
+            )
             # break the slices up into batches, to make things easier for the dask scheduler
             out_slices_partitioned = tuple(partition_all(100000, out_slices))
-            
+
             for idx, part in enumerate(out_slices_partitioned):
-                logging.info(f'{idx + 1} / {len(out_slices_partitioned)}')
+                logging.info(f"{idx + 1} / {len(out_slices_partitioned)}")
                 start = time.time()
-                fut = client.map(lambda v: self.save_chunk(n5arr, dest_arr, v, invert=False), part)
-                logging.info(f'Submitted {len(part)} tasks to the scheduler in {time.time()- start}s')
-                # wait for all the futures to complete
-                result = wait(fut)
-                logging.info(f'Completed {len(part)} tasks in {time.time() - start}s')
+                fut = client.map(
+                    lambda v: save_chunk(src_spec, dst_spec, v, invert=False), part
+                )
+                logging.info(
+                    f"Submitted {len(part)} tasks to the scheduler in {time.time() - start:.2f}s"
+                )
+                wait(fut)
+                logging.info(
+                    f"Completed {len(part)} tasks in {time.time() - start:.2f}s"
+                )
 
 
 def save_chunk(
