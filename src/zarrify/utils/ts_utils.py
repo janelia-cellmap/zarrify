@@ -169,7 +169,7 @@ def zarr3_spec(
     """
     spec: dict = {
         "driver": "zarr3",
-        "kvstore": {"driver": "file", "path": store_path},
+        "kvstore": {"driver": "file", "path": str(store_path)},
         "path": array_path,
         "open": True,
     }
@@ -213,7 +213,7 @@ def n5_spec(store_path: str, array_path: str) -> dict:
     """
     return {
         "driver": "n5",
-        "kvstore": {"driver": "file", "path": store_path},
+        "kvstore": {"driver": "file", "path": str(store_path)},
         "path": array_path,
         "open": True,
     }
@@ -236,10 +236,37 @@ def zarr2_spec(store_path: str, array_path: str) -> dict:
     """
     return {
         "driver": "zarr",
-        "kvstore": {"driver": "file", "path": store_path},
+        "kvstore": {"driver": "file", "path": str(store_path)},
         "path": array_path,
         "open": True,
     }
+
+
+_CODEC_DEFAULTS = {"zstd": 3, "gzip": 6, "blosc": 5}
+
+
+def build_codec(name: str, level: int | None = None) -> dict:
+    """Return a TensorStore zarr3 codec dict from a codec name and compression level.
+
+    When *level* is None the codec's own default is used:
+    zstd → 3, gzip → 6, blosc → 5.
+
+    Parameters
+    ----------
+    name:
+        Codec name. One of "zstd", "gzip", "blosc".
+    level:
+        Compression level. When None, a sensible per-codec default is applied.
+    """
+    if name not in _CODEC_DEFAULTS:
+        raise ValueError(f"Unsupported codec: {name!r}. Choose from {list(_CODEC_DEFAULTS)}.")
+    resolved = level if level is not None else _CODEC_DEFAULTS[name]
+    if name == "zstd":
+        return zstd_codec(resolved)
+    elif name == "gzip":
+        return gzip_codec(resolved)
+    else:
+        return blosc_codec(clevel=resolved)
 
 
 def open_ts(spec: dict) -> ts.TensorStore:
