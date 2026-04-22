@@ -140,37 +140,75 @@ class Volume:
             spatial_factors = {k : v for k,v in zip(axes, factors)}
             return tuple(1 if axis in ['c', 't'] else spatial_factors[axis] for axis in axes_order)
 
-    def create_multiscale(self, z_root: zarr.Group,
-                        client: Client,
-                        data_origin: str,
-                        antialiasing : bool,
-                        normalize_voxel_size : bool,
-                        custom_scale_factors : List[List[float]]
-                        ):
-        """
-        Creates multiscale pyramid and write corresponding metadata into .zattrs 
+    def create_multiscale(
+        self,
+        store_path: str,
+        z_root: zarr.Group,
+        client: Client,
+        data_origin: str,
+        antialiasing: bool,
+        normalize_voxel_size: bool,
+        custom_scale_factors: List[List[float]],
+        chunk_shape: list[int] | None = None,
+        shard_shape: list[int] | None = None,
+        codec: dict = zstd_codec(level=6),
+    ) -> None:
+        """Create a multiscale pyramid and write corresponding metadata into .zattrs.
 
-        Args:
-            z_root : parent group for source zarr array
-            client : Dask client instance
-            num_workers : Number of dask workers
-            data_origin : affects which downsampling method is used. Accepts two values: 'labels' or 'raw'
+        Each pyramid level is computed by downsampling the previous level.
+        Downsampling continues until all spatial dimensions are <= 32 voxels.
+        Array data is read and written via TensorStore; attributes are managed
+        via the zarr group.
+
+        Parameters
+        ----------
+        store_path:
+            Absolute path to the zarr store root on the local filesystem.
+            Required so TensorStore specs can be constructed for each level.
+        z_root:
+            Opened zarr group at the store root. Used for attribute read/write
+            and to query array shape and dtype.
+        client:
+            Dask distributed client used to parallelise chunk writes.
+        data_origin:
+            Downsampling method. "labels" uses windowed mode; "raw" uses
+            windowed mean with optional Gaussian antialiasing.
+        antialiasing:
+            When True and data_origin is "raw", apply a Gaussian blur before
+            downsampling to reduce aliasing.
+        normalize_voxel_size:
+            When True, use adaptive per-axis downsampling factors to maintain
+            approximately isotropic voxel size across pyramid levels.
+        custom_scale_factors:
+            Explicit scale factor list for each level. When provided,
+            per-level factors are derived from adjacent entries in this list.
+        chunk_shape:
+            Chunk shape for output arrays. When None, inherits from s0.
+        shard_shape:
+            Shard shape for output arrays. When provided, enables sharding.
+        codec:
+            Compression codec dict. Defaults to zstd_codec(level=6).
         """
         # store original array in a new .zarr file as an arr_name scale
-        z_attrs = z_root.attrs.asdict() 
+        z_attrs = z_root.attrs.asdict()
         scn_level_up = z_attrs['multiscales'][0]['datasets'][0]['coordinateTransformations'][0]['scale']
         trn_level_up = z_attrs['multiscales'][0]['datasets'][0]['coordinateTransformations'][1]['translation']
-            
+
         level = 1
         source_shape = z_root[f's{level-1}'].shape
         axes_order = [axis['name'].lower() for axis in z_attrs['multiscales'][0]['axes']]
         spatial_shape = list(source_shape[i] for i, axis in enumerate(axes_order) if axis not in ['c', 't'])
-        
-        #continue downsampling if output array dimensions > 32 
+
+        # resolve chunk_shape: fall back to s0 chunk shape when not specified
+        resolved_chunk_shape = chunk_shape if chunk_shape is not None else list(
+            open_ts(zarr3_spec(store_path, 's0')).chunk_layout.read_chunk.shape
+        )
+
+        #continue downsampling if output array dimensions > 32
         while all([dim > 32 for dim in spatial_shape]):
             logger.info(f'Computing image for scale level {level}')
             source_arr = z_root[f's{level-1}']
-            
+
             if custom_scale_factors:
                 scaling_factors = tuple(int(sc_cur/sc_prev) for sc_prev, sc_cur in zip(custom_scale_factors[level-1], custom_scale_factors[level]))
             else:
@@ -178,37 +216,43 @@ class Volume:
 
             dest_shape = [math.floor(dim / scaling) for dim, scaling in zip(source_arr.shape, scaling_factors)]
 
-            # initialize output array
-            dest_arr = z_root.require_dataset(
-                f's{level}', 
-                shape=dest_shape, 
-                chunks=source_arr.chunks, 
-                dtype=source_arr.dtype, 
-                compressor=source_arr.compressor, 
-                dimension_separator='/',
-                fill_value=0,
-                exact=True)
-                    
-            assert dest_arr.chunks == source_arr.chunks
-            out_slices = slices_from_chunks(normalize_chunks(source_arr.chunks, shape=dest_arr.shape))
-            
+            # initialize output array via TensorStore
+            src_spec = zarr3_spec(store_path, f's{level-1}')
+            dst_spec = zarr3_spec(
+                store_path=store_path,
+                array_path=f's{level}',
+                shape=dest_shape,
+                dtype=source_arr.dtype,
+                chunk_shape=resolved_chunk_shape,
+                shard_shape=shard_shape,
+                codec=codec,
+                create=True,
+            )
+            dest_arr = open_ts(dst_spec)
+            dest_chunks = dest_arr.chunk_layout.write_chunk.shape
+
+            out_slices = slices_from_chunks(normalize_chunks(dest_chunks, shape=dest_shape))
+
             #break the slices up into batches, to make things easier for the dask scheduler
             out_slices_partitioned = tuple(partition_all(100000, out_slices))
             for idx, part in enumerate(out_slices_partitioned):
                 logger.info(f'{idx + 1} / {len(out_slices_partitioned)}')
                 start = time.time()
-                fut = client.map(lambda v: downsample_save_chunk_mode(source_arr, dest_arr, v, scaling_factors, data_origin, antialiasing), part)
-                logger.info(f'Submitted {len(part)} tasks to the scheduler in {round(time.time()- start, 4)}s')
-                
+                fut = client.map(
+                    lambda v: downsample_save_chunk_mode(src_spec, dst_spec, v, scaling_factors, data_origin, antialiasing),
+                    part,
+                )
+                logger.info(f'Submitted {len(part)} tasks to the scheduler in {round(time.time() - start, 4)}s')
+
                 # wait for all the futures to complete
                 result = wait(fut)
                 logger.info(f'Completed {len(part)} tasks in {round(time.time() - start, 2)}s')
-                
-            # calculate scale and transalation for n-th scale
+
+            # calculate scale and translation for n-th scale
             sn = [sc*sn_prev for sn_prev, sc in zip(scn_level_up, scaling_factors)]
             trn = [(sc -1)*sn_prev/(sc) + trn_prev for sn_prev, trn_prev, sc
                 in zip(scn_level_up, trn_level_up, scaling_factors)]
-                    
+
             # Convert datasets list to dict for easier lookup/replacement
             datasets = z_attrs['multiscales'][0]['datasets']
             datasets_dict = {d['path']: d for d in datasets}
@@ -216,20 +260,20 @@ class Volume:
             # Update or add
             datasets_dict[f's{level}'] = {
                 'coordinateTransformations': [
-                    {"type": "scale", "scale": sn}, 
+                    {"type": "scale", "scale": sn},
                     {"type": "translation", "translation": trn}
                 ],
                 'path': f's{level}'
             }
             # Convert back to list (maintaining order)
             z_attrs['multiscales'][0]['datasets'] = list(datasets_dict.values())
-            
+
             #prepare data for downsampling next level
             level += 1
             scn_level_up = sn
             trn_level_up = trn
             spatial_shape = list(dest_shape[i] for i, axis in enumerate(axes_order) if axis not in ['c', 't'])
-        
+
         #write multiscale metadata into .zattrs
         z_root.attrs['multiscales'] = z_attrs['multiscales']
 
