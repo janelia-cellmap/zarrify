@@ -247,33 +247,42 @@ def upscale_slice(slc: slice, factor: int):
     return slice(slc.start * factor, slc.stop * factor, slc.step)
 
 def downsample_save_chunk_mode(
-        source: zarr.Array, 
-        dest: zarr.Array, 
+        src_spec: dict,
+        dst_spec: dict,
         out_slices: Tuple[slice, ...],
         downsampling_factors: Tuple[int, ...],
         data_origin: str,
-        antialiasing : bool):
-    
-    """
-    Downsamples source array slice and writes into destination array. 
+        antialiasing: bool,
+) -> None:
+    """Downsample one chunk from the source array and write it to the destination via TensorStore.
 
-    Args:
-        source : source zarr array that needs to be downsampled
-        dest : destination zarr array that contains downsampled data
-        out_slices : part of the destination array that would contain the output data
-        downsampling_factors : tuple that contains downsampling factors. dim(downsampling_factors) must match the shape of the source array
-        data_origin : affects which downsampling method is used. Accepts two values: labels or raw
+    Parameters
+    ----------
+    src_spec:
+        TensorStore zarr3 spec dict for the source array (scale level n-1).
+    dst_spec:
+        TensorStore zarr3 spec dict for the destination array (scale level n).
+    out_slices:
+        Slice tuple identifying the region in the destination array to fill.
+    downsampling_factors:
+        Downsampling factor per axis. Must match the array dimensionality.
+    data_origin:
+        Downsampling method selector. "labels" uses windowed mode (nearest-
+        neighbour majority vote); "raw" uses windowed mean with optional
+        Gaussian antialiasing.
+    antialiasing:
+        When True and data_origin is "raw", applies a Gaussian blur before
+        downsampling to reduce aliasing. Conservative blur coefficient: factor/2.5.
     """
-    
     in_slices = tuple(upscale_slice(out_slice, fact) for out_slice, fact in zip(out_slices, downsampling_factors))
-    source_data = source[in_slices]
+    source_data = open_ts(src_spec)[in_slices].read().result()
     # only downsample source_data if it is not all 0s
     if not (source_data == 0).all():
         if data_origin == 'labels':
             ds_data = windowed_mode(source_data, window_size=tuple(downsampling_factors))
         elif data_origin == 'raw':
             if antialiasing:
-                # blur data in chunk before downsampling to reduce aliasing of the image 
+                # blur data in chunk before downsampling to reduce aliasing of the image
                 # conservative Gaussian blur coeff: 2/2.5 = 0.8
                 sigma = [0 if factor == 1 else factor/2.5 for factor in downsampling_factors]
                 filtered_data = ndi.gaussian_filter(source_data, sigma=sigma)
@@ -281,5 +290,4 @@ def downsample_save_chunk_mode(
             else:
                 ds_data = windowed_mean(source_data, window_size=tuple(downsampling_factors))
 
-        dest[out_slices] = ds_data
-    return 0
+        open_ts(dst_spec)[out_slices].write(ds_data).result()
