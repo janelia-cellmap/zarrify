@@ -8,8 +8,8 @@ log_dir : "/path/to/log/directory" # dask log directory
 extra_directives : ["-P myproject"] # pass extra dask options
 
 # Output zarr array configs
-zarr_chunks : [128, 128, 128] # inner chunk shape (also the on-disk chunk when no sharding)
-shard_shape : null            # outer shard shape — set to e.g. [512, 512, 512] to enable sharding; each dim must be >= zarr_chunks
+zarr_chunks : [32, 32, 32] # inner chunk shape (also the on-disk chunk when no sharding)
+shard_shape : [1024, 1024, 1024] # outer shard shape — set to e.g. [512, 512, 512] to enable sharding; each dim must be >= zarr_chunks
 codec : zstd                  # compression codec: zstd | gzip | blosc
 codec_level : 3               # compression level (zstd default: 3, gzip default: 6, blosc default: 5)
 axes : [z, y, x] # axis order
