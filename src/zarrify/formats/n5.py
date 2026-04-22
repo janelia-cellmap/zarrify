@@ -9,7 +9,6 @@ from typing import Tuple
 import natsort
 import numpy as np
 import pint
-import pydantic_zarr as pz
 import zarr
 from dask.array.core import normalize_chunks, slices_from_chunks
 from dask.distributed import Client, wait
@@ -19,7 +18,7 @@ from zarrify.utils.ts_utils import n5_spec, zarr3_spec, open_ts, zstd_codec
 from zarrify.utils.volume import Volume
 
 class N5Group(Volume):
-    
+
     def __init__(
         self,
         src_path: str,
@@ -35,9 +34,6 @@ class N5Group(Volume):
         """
         super().__init__(src_path, axes, scale, translation, units)
         self.store_path, self.path = self.separate_store_path(src_path, '')
-        self.n5_store = zarr.N5Store(self.store_path)
-        
-        self.n5_obj = zarr.open(store = self.n5_store, path=self.path, mode='r')
 
     def separate_store_path(self,
                             store : str,
@@ -59,7 +55,7 @@ class N5Group(Volume):
         if ".n5" in path_prefix:
             return store, path
         return self.separate_store_path(new_store, os.path.join(path_prefix, path))
-    
+
     #creates attributes.json recursively within n5 group, if missing
     def reconstruct_json(self, n5src: str) -> None:
         """Recursively create missing attributes.json files inside an N5 tree.
@@ -80,7 +76,94 @@ class N5Group(Volume):
         for obj in dir_list:
             if os.path.isdir(os.path.join(n5src, obj)):
                 self.reconstruct_json(os.path.join(n5src, obj))
-                
+
+    def _find_n5_arrays(self, root_path: str) -> list[str]:
+        """Walk the N5 directory and return store-relative paths of all arrays.
+
+        An N5 array is identified by an attributes.json that contains both
+        "dataType" and "dimensions" keys.
+
+        Parameters
+        ----------
+        root_path:
+            Absolute path to the N5 store root or sub-group to search.
+
+        Returns
+        -------
+        list[str]
+            Paths relative to self.store_path, suitable for passing to
+            n5_spec() and zarr3_spec().
+        """
+        array_paths = []
+        for dirpath, _, filenames in os.walk(root_path):
+            if 'attributes.json' not in filenames:
+                continue
+            with open(os.path.join(dirpath, 'attributes.json')) as f:
+                try:
+                    attrs = json.load(f)
+                except json.JSONDecodeError:
+                    continue
+            # N5 arrays carry 'dataType' and 'dimensions' in their attributes
+            if 'dataType' in attrs and 'dimensions' in attrs:
+                array_paths.append(os.path.relpath(dirpath, self.store_path))
+        return array_paths
+
+    def _copy_n5_group_attrs(self, root_path: str, z_root: zarr.Group) -> None:
+        """Copy N5 group attributes to the output zarr3 store.
+
+        Only group-level attributes.json files are copied (array nodes, which
+        carry "dataType"/"dimensions", are skipped). Group attributes are needed
+        by normalize_to_omengff to build OME-NGFF multiscales metadata.
+
+        Parameters
+        ----------
+        root_path:
+            Absolute path to the N5 store root.
+        z_root:
+            Opened zarr3 group at the output store root.
+        """
+        for dirpath, _, filenames in os.walk(root_path):
+            if 'attributes.json' not in filenames:
+                continue
+            with open(os.path.join(dirpath, 'attributes.json')) as f:
+                try:
+                    attrs = json.load(f)
+                except json.JSONDecodeError:
+                    continue
+            if 'dataType' in attrs and 'dimensions' in attrs:
+                continue
+            rel = os.path.relpath(dirpath, root_path)
+            target = z_root if rel == '.' else z_root.require_group(rel)
+            for k, v in attrs.items():
+                target.attrs[k] = v
+
+    def _copy_n5_array_attrs(self, dest: str, array_paths: list[str]) -> None:
+        """Copy N5 array attributes (e.g. transform) to the output zarr3 arrays.
+
+        Called after TensorStore has created the output zarr3 arrays so that
+        normalize_to_omengff can read coordinate transform metadata.
+
+        Parameters
+        ----------
+        dest:
+            Absolute path to the output zarr3 store root.
+        array_paths:
+            Store-relative paths of arrays whose attributes should be copied.
+        """
+        z_store = zarr.storage.LocalStore(dest)
+        for rel_path in array_paths:
+            attrs_file = os.path.join(self.store_path, rel_path, 'attributes.json')
+            if not os.path.exists(attrs_file):
+                continue
+            with open(attrs_file) as f:
+                try:
+                    attrs = json.load(f)
+                except json.JSONDecodeError:
+                    continue
+            z_arr = zarr.open_array(store=z_store, path=rel_path, mode='a')
+            for k, v in attrs.items():
+                z_arr.attrs[k] = v
+
     def apply_ome_template(self, zgroup: zarr.Group) -> dict:
         """Build an OME-NGFF v0.4 multiscales attribute dict from N5 group attributes.
 
@@ -98,18 +181,18 @@ class N5Group(Volume):
 
         # normalize input units, i.e. 'meter' or 'm'-> 'meter'
         ureg = pint.UnitRegistry()
-        units_list = [ureg.Unit(unit) for unit in zgroup.attrs['units']]            
+        units_list = [ureg.Unit(unit) for unit in zgroup.attrs['units']]
 
         #populate .zattrs
-        z_attrs['multiscales'][0]['axes'] = [{"name": axis, 
+        z_attrs['multiscales'][0]['axes'] = [{"name": axis,
                                             "type": "space",
-                                            "unit": unit} for (axis, unit) in zip(zgroup.attrs['axes'], 
+                                            "unit": unit} for (axis, unit) in zip(zgroup.attrs['axes'],
                                                                                     units_list)]
         z_attrs['multiscales'][0]['version'] = '0.4'
         z_attrs['multiscales'][0]['name'] = zgroup.name
         z_attrs['multiscales'][0]['coordinateTransformations'] = [{"type": "scale",
                         "scale": [1.0, 1.0, 1.0]}, {"type" : "translation", "translation" : [1.0, 1.0, 1.0]}]
-        
+
         return z_attrs
 
     def normalize_to_omengff(self, zgroup: zarr.Group) -> None:
@@ -121,9 +204,9 @@ class N5Group(Volume):
             Root zarr group of the output zarr store.
         """
         group_keys = zgroup.keys()
-        
+
         for key in chain(group_keys, '/'):
-            if isinstance(zgroup[key], zarr.hierarchy.Group):
+            if isinstance(zgroup[key], zarr.Group):
                 if key!='/':
                     self.normalize_to_omengff(zgroup[key])
                 if 'scales' in zgroup[key].attrs.asdict():
@@ -138,7 +221,7 @@ class N5Group(Volume):
                     #2.add datasets metadata to the omengff template
                     zattrs['multiscales'][0]['datasets'] = natsort.natsorted(unsorted_datasets, key=itemgetter(*['path']))
                     zgroup[key].attrs['multiscales'] = zattrs['multiscales']
-                    
+
     @staticmethod
     def ome_dataset_metadata(n5arr: zarr.Array, group: zarr.Group) -> dict:
         """Build one OME-NGFF dataset metadata entry from an N5 array.
@@ -155,7 +238,7 @@ class N5Group(Volume):
         dict
             A single entry suitable for the "datasets" list in multiscales.
         """
-    
+
         arr_attrs_n5 = n5arr.attrs['transform']
         dataset_meta =  {
                         "path": os.path.relpath(n5arr.path, group.path),
@@ -165,30 +248,8 @@ class N5Group(Volume):
                             'type': 'translation',
                             'translation' : arr_attrs_n5['translate']
                         }]}
-        
-        return dataset_meta
-    
-    # d=groupspec.to_dict(),
-    def normalize_groupspec(self, d: dict, codec: dict) -> None:
-        for k, v in d.items():
-            if k == "compressor":
-                d[k] = codec
-            elif k == "dimension_separator":
-                d[k] = "/"
-            elif isinstance(v, dict):
-                self.normalize_groupspec(v, codec)
 
-    def copy_n5_tree(
-        self,
-        n5_root: zarr.Group,
-        z_store: zarr.storage.LocalStore,
-        codec: dict,
-    ) -> zarr.Group:
-        spec_n5 = pz.GroupSpec.from_zarr(n5_root)
-        spec_n5_dict = spec_n5.model_dump()
-        self.normalize_groupspec(spec_n5_dict, codec)
-        spec_n5 = pz.GroupSpec(**spec_n5_dict)
-        return spec_n5.to_zarr(z_store, path="")
+        return dataset_meta
 
     def write_to_zarr(
         self,
@@ -200,11 +261,11 @@ class N5Group(Volume):
     ) -> None:
         """Copy all N5 arrays into a zarr3 store via TensorStore.
 
-        The N5 hierarchy is first mirrored to the output store using
-        pydantic-zarr. Data is then copied chunk-by-chunk: each Dask task
-        reads one chunk from the N5 source via the TensorStore N5 driver and
-        writes it to the zarr3 destination via the TensorStore zarr3 driver.
-        All-zero chunks are skipped.
+        The N5 hierarchy is traversed with os.walk to discover arrays; group
+        and array attributes are copied directly from attributes.json files,
+        preserving all N5 metadata without requiring zarr's N5 driver. Data
+        is copied chunk-by-chunk using the TensorStore N5 driver for reads
+        and the zarr3 driver for writes. All-zero chunks are skipped.
 
         Parameters
         ----------
@@ -224,26 +285,37 @@ class N5Group(Volume):
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         )
 
-        self.reconstruct_json(os.path.join(self.store_path, self.path))
+        n5_root_path = os.path.join(self.store_path, self.path) if self.path else self.store_path
+        self.reconstruct_json(n5_root_path)
 
         # input n5 arrays list to convert
-        n5_root = zarr.open_group(self.n5_store, mode="r")
-        zarr_arrays = list(n5_root.arrays(recurse=True))
+        n5_array_paths = self._find_n5_arrays(n5_root_path)
 
         # copy input n5 tree structure to output zarr and add ome-metadata, when N5 metadata is present
         z_store = zarr.storage.LocalStore(dest)
-        zg = self.copy_n5_tree(n5_root, z_store, codec)
-        self.normalize_to_omengff(zg)
+        z_root = zarr.open_group(store=z_store, mode='a')
+        self._copy_n5_group_attrs(n5_root_path, z_root)
 
-        for _, n5arr in zarr_arrays:
-            src_spec = n5_spec(self.store_path, n5arr.path)
+        for rel_path in n5_array_paths:
+            src_spec = n5_spec(self.store_path, rel_path)
+            src_arr = open_ts(src_spec)
+            shape = src_arr.shape
+            dtype = np.dtype(src_arr.dtype.numpy_dtype)
+
+            # trim chunk/shard shapes to array ndim; N5 trees can hold mixed-dimensionality arrays
+            arr_chunk_shape = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
+            arr_shard_shape = (
+                [min(s, dim) for s, dim in zip(list(shard_shape)[-len(shape):], shape)]
+                if shard_shape is not None else None
+            )
+
             dst_spec = zarr3_spec(
                 store_path=dest,
-                array_path=n5arr.path,
-                shape=n5arr.shape,
-                dtype=n5arr.dtype,
-                chunk_shape=chunk_shape,
-                shard_shape=shard_shape,
+                array_path=rel_path,
+                shape=shape,
+                dtype=dtype,
+                chunk_shape=arr_chunk_shape,
+                shard_shape=arr_shard_shape,
                 codec=codec,
                 create=True,
             )
@@ -252,7 +324,7 @@ class N5Group(Volume):
             dest_chunks = dest_arr.chunk_layout.write_chunk.shape
 
             out_slices = slices_from_chunks(
-                normalize_chunks(dest_chunks, shape=n5arr.shape)
+                normalize_chunks(dest_chunks, shape=shape)
             )
             # break the slices up into batches, to make things easier for the dask scheduler
             out_slices_partitioned = tuple(partition_all(100000, out_slices))
@@ -270,6 +342,11 @@ class N5Group(Volume):
                 logging.info(
                     f"Completed {len(part)} tasks in {time.time() - start:.2f}s"
                 )
+
+        # copy array-level N5 attributes (e.g. transform) then build OME metadata
+        self._copy_n5_array_attrs(dest, n5_array_paths)
+        z_root = zarr.open_group(store=z_store, mode='a')
+        self.normalize_to_omengff(z_root)
 
 
 def save_chunk(
