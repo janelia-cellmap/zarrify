@@ -190,23 +190,6 @@ class N5Group(Volume):
         spec_n5 = pz.GroupSpec(**spec_n5_dict)
         return spec_n5.to_zarr(z_store, path="")
 
-    def save_chunk(
-        self,
-        source: zarr.Array, 
-        dest: zarr.Array, 
-        out_slices: Tuple[slice, ...],
-        invert: bool):
-    
-        in_slices = tuple(out_slice for out_slice in out_slices)
-        source_data = source[in_slices]
-        # only store source_data if it is not all 0s
-        if not (source_data == 0).all():
-            if invert == True:
-                dest[out_slices] = np.invert(source_data)
-            else:
-                dest[out_slices] = source_data
-        return 1
-        
     def write_to_zarr(
         self,
         dest: str,
@@ -245,3 +228,35 @@ class N5Group(Volume):
                 # wait for all the futures to complete
                 result = wait(fut)
                 logging.info(f'Completed {len(part)} tasks in {time.time() - start}s')
+
+
+def save_chunk(
+    src_spec: dict,
+    dst_spec: dict,
+    chunk_slice: Tuple[slice, ...],
+    invert: bool = False,
+) -> None:
+    """Copy one chunk from an N5 array into a zarr3 TensorStore array.
+
+    All-zero chunks are skipped to avoid unnecessary writes.
+
+    Parameters
+    ----------
+    src_spec:
+        TensorStore N5 driver spec for the source array.
+    dst_spec:
+        TensorStore zarr3 driver spec for the destination array.
+    chunk_slice:
+        Slice tuple identifying the chunk region to copy.
+    invert:
+        When True, apply bitwise inversion to the data before writing.
+    """
+    src = open_ts(src_spec)
+    data = src[chunk_slice].read().result()
+    # only store data if it is not all 0s
+    if (data == 0).all():
+        return
+    if invert:
+        data = np.invert(data)
+    dest = open_ts(dst_spec)
+    dest[chunk_slice].write(data).result()
