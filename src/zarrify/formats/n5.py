@@ -60,21 +60,41 @@ class N5Group(Volume):
             return store, path
         return self.separate_store_path(new_store, os.path.join(path_prefix, path))
     
-    #creates attributes.json recursively within n5 group, if missing 
-    def reconstruct_json(self,
-                         n5src : str):
+    #creates attributes.json recursively within n5 group, if missing
+    def reconstruct_json(self, n5src: str) -> None:
+        """Recursively create missing attributes.json files inside an N5 tree.
+
+        Some N5 writers omit attributes.json for intermediate groups. zarr
+        and pydantic-zarr require it to be present before they can read the
+        hierarchy.
+
+        Parameters
+        ----------
+        n5src:
+            Absolute path to the N5 store root or any sub-directory within it.
+        """
         dir_list = os.listdir(n5src)
         if "attributes.json" not in dir_list:
-            with open(os.path.join(n5src,"attributes.json"), "w") as jfile:
-                dict = {"n5": "2.0.0"}
-                jfile.write(json.dumps(dict, indent=4))
+            with open(os.path.join(n5src, "attributes.json"), "w") as jfile:
+                jfile.write(json.dumps({"n5": "2.0.0"}, indent=4))
         for obj in dir_list:
             if os.path.isdir(os.path.join(n5src, obj)):
                 self.reconstruct_json(os.path.join(n5src, obj))
                 
-    def apply_ome_template(self, zgroup : zarr.Group):
-    
-        z_attrs = {"multiscales": [{}]}
+    def apply_ome_template(self, zgroup: zarr.Group) -> dict:
+        """Build an OME-NGFF v0.4 multiscales attribute dict from N5 group attributes.
+
+        Parameters
+        ----------
+        zgroup:
+            Zarr group with N5-style "axes", "units", and "scales" attributes.
+
+        Returns
+        -------
+        dict
+            A dict suitable for writing to zgroup.attrs["multiscales"].
+        """
+        z_attrs: dict = {"multiscales": [{}]}
 
         # normalize input units, i.e. 'meter' or 'm'-> 'meter'
         ureg = pint.UnitRegistry()
@@ -92,8 +112,14 @@ class N5Group(Volume):
         
         return z_attrs
 
-    def normalize_to_omengff(self,
-                             zgroup : zarr.Group):
+    def normalize_to_omengff(self, zgroup: zarr.Group) -> None:
+        """Recursively convert N5 metadata to OME-NGFF multiscales attributes.
+
+        Parameters
+        ----------
+        zgroup:
+            Root zarr group of the output zarr store.
+        """
         group_keys = zgroup.keys()
         
         for key in chain(group_keys, '/'):
@@ -113,8 +139,22 @@ class N5Group(Volume):
                     zattrs['multiscales'][0]['datasets'] = natsort.natsorted(unsorted_datasets, key=itemgetter(*['path']))
                     zgroup[key].attrs['multiscales'] = zattrs['multiscales']
                     
-    def ome_dataset_metadata(n5arr : zarr.Array,
-                             group : zarr.Group):
+    @staticmethod
+    def ome_dataset_metadata(n5arr: zarr.Array, group: zarr.Group) -> dict:
+        """Build one OME-NGFF dataset metadata entry from an N5 array.
+
+        Parameters
+        ----------
+        n5arr:
+            Source N5 array with a "transform" attribute.
+        group:
+            Parent group used to compute the relative path.
+
+        Returns
+        -------
+        dict
+            A single entry suitable for the "datasets" list in multiscales.
+        """
     
         arr_attrs_n5 = n5arr.attrs['transform']
         dataset_meta =  {
