@@ -129,22 +129,26 @@ class N5Group(Volume):
         return dataset_meta
     
     # d=groupspec.to_dict(),
-    def normalize_groupspec(self, d, comp):
-        for k,v in d.items():
+    def normalize_groupspec(self, d: dict, codec: dict) -> None:
+        for k, v in d.items():
             if k == "compressor":
-                d[k] = comp.get_config()
+                d[k] = codec
+            elif k == "dimension_separator":
+                d[k] = "/"
+            elif isinstance(v, dict):
+                self.normalize_groupspec(v, codec)
 
-            elif k == 'dimension_separator':
-                d[k] = '/'
-            elif isinstance(v,  dict):
-                self.normalize_groupspec(v, comp)
-
-    def copy_n5_tree(self, n5_root, z_store, comp):
+    def copy_n5_tree(
+        self,
+        n5_root: zarr.Group,
+        z_store: zarr.storage.LocalStore,
+        codec: dict,
+    ) -> zarr.Group:
         spec_n5 = pz.GroupSpec.from_zarr(n5_root)
-        spec_n5_dict = spec_n5.dict()
-        self.normalize_groupspec(spec_n5_dict, comp)
+        spec_n5_dict = spec_n5.model_dump()
+        self.normalize_groupspec(spec_n5_dict, codec)
         spec_n5 = pz.GroupSpec(**spec_n5_dict)
-        return spec_n5.to_zarr(z_store, path= '')
+        return spec_n5.to_zarr(z_store, path="")
 
     def save_chunk(
         self,
@@ -180,7 +184,7 @@ class N5Group(Volume):
         n5_root = zarr.open_group(self.n5_store, mode = 'r')
         zarr_arrays = n5_root.arrays(recurse=True)
         # copy input n5 tree structure to output zarr and add ome-metadata, when N5 metadata is present
-        z_store = zarr.NestedDirectoryStore(dest)
+        z_store = zarr.storage.LocalStore(dest)
         zg = self.copy_n5_tree(n5_root, z_store, comp)
 
         self.normalize_to_omengff(zg)
