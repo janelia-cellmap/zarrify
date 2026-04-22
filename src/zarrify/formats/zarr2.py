@@ -10,6 +10,7 @@ from dask.array.core import normalize_chunks, slices_from_chunks
 from dask.distributed import Client, wait
 from toolz import partition_all
 
+from zarrify.utils.dask_utils import check_shardslab_fits_in_ram
 from zarrify.utils.ts_utils import zarr2_spec, zarr3_spec, open_ts, zstd_codec
 from zarrify.utils.volume import Volume
 
@@ -104,6 +105,8 @@ class Zarr2Group(Volume):
                 [min(s, dim) for s, dim in zip(list(shard_shape)[-len(shape):], shape)]
                 if shard_shape is not None else None
             )
+            if arr_shard_shape is not None:
+                check_shardslab_fits_in_ram(arr_shard_shape, dtype, arr_chunk_shape, client)
 
             src_spec = zarr2_spec(self.src_path, rel_path)
             dst_spec = zarr3_spec(

@@ -116,21 +116,6 @@ class Tiff(Volume):
         slab_size_bytes = int(np.prod(slice_chunks)) * np.dtype(self.dtype).itemsize
         logger.info(f"Slab size: {slab_size_bytes / 1e9:.3f} GB")
 
-        try:
-            client.wait_for_workers(n_workers=1, timeout=30)
-            workers_info = client.scheduler_info()["workers"]
-            worker_memory_bytes = next(iter(workers_info.values()))["memory_limit"]
-            logger.info(f"Dask worker memory limit: {worker_memory_bytes / 1e9:.3f} GB")
-            if slab_size_bytes > worker_memory_bytes:
-                raise ValueError(
-                    "TIFF slab size exceeds Dask worker memory limit. "
-                    "Reduce the output chunk size."
-                )
-        except ValueError:
-            raise
-        except Exception as e:
-            logger.warning(f"Could not retrieve worker memory info: {e}")
-
         normalized_chunks = normalize_chunks(slice_chunks, shape=self.shape)
         slice_tuples = slices_from_chunks(normalized_chunks)
         src_path = copy.copy(self.src_path)

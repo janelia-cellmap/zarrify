@@ -12,7 +12,7 @@ from zarrify.formats.n5 import N5Group
 from zarrify.formats.tiff import Tiff
 from zarrify.formats.tiff_stack import TiffStack
 from zarrify.formats.zarr2 import Zarr2Group
-from zarrify.utils.dask_utils import initialize_dask_client
+from zarrify.utils.dask_utils import initialize_dask_client, check_shardslab_fits_in_ram
 from zarrify.utils.pydantic_models import validate_config
 from zarrify.utils.ts_utils import build_codec, zarr3_spec
 from zarrify.utils.zarr_utils import create_output_array
@@ -109,6 +109,7 @@ def to_zarr(src : str,
 
     if isinstance(dataset, N5Group):
         # N5 handles zarr creation internally due to tree structure complexity
+        # RAM check is done per-array inside write_to_zarr (arrays can have different shapes)
         client.cluster.scale(workers)
         dataset.write_to_zarr(dest, client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
         client.cluster.scale(0)
@@ -118,6 +119,7 @@ def to_zarr(src : str,
         return
 
     if isinstance(dataset, Zarr2Group):
+        # RAM check is done per-array inside write_to_zarr
         client.cluster.scale(workers)
         dataset.write_to_zarr(str(dest), client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
         client.cluster.scale(0)
@@ -127,13 +129,16 @@ def to_zarr(src : str,
         logger.info(f"Input dataset shape: {dataset.shape}")
         logger.info(f"Input dataset dtype: {dataset.dtype}")
         logger.info(f"Input dataset ndim: {dataset.ndim}")
-        # Reshape chunks to match data dimensionality
+        # Reshape chunks and shard to match data dimensionality
         logger.info(f"Zarr chunks: {zarr_chunks}")
         if len(zarr_chunks) != len(dataset.shape):
             logger.info(f"Reshaping chunks to match data dimensionality")
             zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
             logger.info(f"Reshaped chunks: {zarr_chunks}")
-            
+        if shard_shape is not None and len(shard_shape) != len(dataset.shape):
+            shard_shape = list(shard_shape)[-len(dataset.shape):]
+            logger.info(f"Trimmed shard_shape to {shard_shape}")
+
         # check multiscale custom scale parameters before expensive data copying
         if multiscale:
             if not ms_workers:
@@ -159,6 +164,8 @@ def to_zarr(src : str,
         # Write data using new signature
         logger.info(f"Writing data to Zarr arrays...")
         client.cluster.scale(workers)
+        if shard_shape is not None:
+            check_shardslab_fits_in_ram(shard_shape, dataset.dtype, zarr_chunks, client)
         dataset.write_to_zarr(dest_spec, client)
         client.cluster.scale(0)
         logger.info(f"Completed writing all data to Zarr arrays")
