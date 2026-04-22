@@ -1,22 +1,22 @@
-import zarr
-import os
-from zarrify.utils.volume import Volume
 import json
-from itertools import chain
-import natsort
-from operator import itemgetter
-import pydantic_zarr as pz
-import dask.array as da
-from dask.array.core import slices_from_chunks, normalize_chunks
-from toolz import partition_all
-from dask.distributed import Client, wait
-from typing import Tuple
+import logging
+import os
 import time
+from itertools import chain
+from operator import itemgetter
+from typing import Tuple
+
+import natsort
 import numpy as np
-import logging 
 import pint
-from abc import ABCMeta
-from numcodecs import Zstd
+import pydantic_zarr as pz
+import zarr
+from dask.array.core import normalize_chunks, slices_from_chunks
+from dask.distributed import Client, wait
+from toolz import partition_all
+
+from zarrify.utils.ts_utils import n5_spec, zarr3_spec, open_ts, zstd_codec
+from zarrify.utils.volume import Volume
 
 class N5Group(Volume):
     
@@ -128,7 +128,7 @@ class N5Group(Volume):
         
         return dataset_meta
     
-    # d=groupspec.to_dict(),  
+    # d=groupspec.to_dict(),
     def normalize_groupspec(self, d, comp):
         for k,v in d.items():
             if k == "compressor":
@@ -145,21 +145,7 @@ class N5Group(Volume):
         self.normalize_groupspec(spec_n5_dict, comp)
         spec_n5 = pz.GroupSpec(**spec_n5_dict)
         return spec_n5.to_zarr(z_store, path= '')
-        
-    
-    #creates attributes.json, if missing 
-    def reconstruct_json(self, n5src):
-        dir_list = os.listdir(n5src)
-        if "attributes.json" not in dir_list:
-            with open(os.path.join(n5src,"attributes.json"), "w") as jfile:
-                dict = {"n5": "2.0.0"}
-                jfile.write(json.dumps(dict, indent=4))
-        for obj in dir_list:
-            if os.path.isdir(os.path.join(n5src, obj)):
-                self.reconstruct_json(os.path.join(n5src, obj))
 
-    
-    
     def save_chunk(
         self,
         source: zarr.Array, 
