@@ -108,6 +108,12 @@ def to_zarr(src : str,
         # populate zarr metadata
         dataset.add_ome_metadata(dest)
         return
+
+    if isinstance(dataset, Zarr2Group):
+        client.cluster.scale(workers)
+        dataset.write_to_zarr(str(dest), client, zarr_chunks)
+        client.cluster.scale(0)
+        return
     else:
         logger.info(f"Input dataset: {type(dataset)}")
         logger.info(f"Input dataset shape: {dataset.shape}")
