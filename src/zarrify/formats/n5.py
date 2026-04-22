@@ -73,6 +73,15 @@ class N5Group(Volume):
         if "attributes.json" not in dir_list:
             with open(os.path.join(n5src, "attributes.json"), "w") as jfile:
                 jfile.write(json.dumps({"n5": "2.0.0"}, indent=4))
+        else:
+            # N5 arrays store chunks in subdirectories — don't recurse into them.
+            try:
+                with open(os.path.join(n5src, "attributes.json")) as f:
+                    attrs = json.load(f)
+                if 'dataType' in attrs and 'dimensions' in attrs:
+                    return
+            except (json.JSONDecodeError, OSError):
+                pass
         for obj in dir_list:
             if os.path.isdir(os.path.join(n5src, obj)):
                 self.reconstruct_json(os.path.join(n5src, obj))
