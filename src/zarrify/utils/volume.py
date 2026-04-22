@@ -41,11 +41,16 @@ class Volume:
         from itertools import cycle, islice
         return list(islice(cycle(param_arr), len(ref_arr)))
 
-    def add_ome_metadata(self, dest: str, full_scale_group_name: str = 's0'):
-        """Add selected tiff metadata to zarr attributes file (.zattrs).
+    def add_ome_metadata(self, dest: str, full_scale_group_name: str = 's0') -> None:
+        """Write OME-NGFF v0.4 multiscales metadata to the zarr store root.
 
-        Args:
-            dest (str): path to the output zarr
+        Parameters
+        ----------
+        dest:
+            Absolute path to the output zarr store root directory.
+        full_scale_group_name:
+            Array path of the full-resolution level within the store.
+            Defaults to "s0".
         """
         logger.info(f"Adding OME-Zarr metadata to {dest}")
         logger.info(f"Metadata axes: {self.metadata['axes']}")
@@ -53,13 +58,13 @@ class Volume:
         logger.info(f"Metadata scale: {self.metadata['scale']}")
         logger.info(f"Metadata translation: {self.metadata['translation']}")
 
-        def get_axis(axis : str, unit : str) -> dict:
+        def get_axis(axis: str, unit: str) -> dict:
             if unit:
                 return {"name": axis, "type": "space", "unit": unit}
             else:
                 return {"name": axis, "type": "channel"}
 
-        root = zarr.open(dest, mode = 'a')
+        root = zarr.open(zarr.storage.LocalStore(dest), mode='a')
         # json template for a multiscale structure
         z_attrs: dict = {"multiscales": [{}]}
         z_attrs["multiscales"][0]["axes"] = [
