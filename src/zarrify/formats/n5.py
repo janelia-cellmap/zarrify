@@ -15,7 +15,7 @@ from dask.distributed import Client, wait
 from toolz import partition_all
 
 from zarrify.utils.dask_utils import check_shardslab_fits_in_ram
-from zarrify.utils.ts_utils import n5_spec, zarr3_spec, open_ts, zstd_codec
+from zarrify.utils.ts_utils import align_shard_to_chunks, n5_spec, zarr3_spec, open_ts, zstd_codec
 from zarrify.utils.volume import Volume
 
 class N5Group(Volume):
@@ -322,7 +322,10 @@ class N5Group(Volume):
             # trim chunk/shard shapes to array ndim; N5 trees can hold mixed-dimensionality arrays
             arr_chunk_shape = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
             arr_shard_shape = (
-                [min(s, dim) for s, dim in zip(list(shard_shape)[-len(shape):], shape)]
+                align_shard_to_chunks(
+                    [min(s, dim) for s, dim in zip(list(shard_shape)[-len(shape):], shape)],
+                    arr_chunk_shape,
+                )
                 if shard_shape is not None else None
             )
             if arr_shard_shape is not None:

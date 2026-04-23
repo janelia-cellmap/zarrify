@@ -107,6 +107,20 @@ def _build_codecs(
 
 
 # ---------------------------------------------------------------------------
+# Shard alignment helper
+# ---------------------------------------------------------------------------
+
+def align_shard_to_chunks(shard_shape: list[int], chunk_shape: list[int]) -> list[int]:
+    """Round each shard dim down to the nearest multiple of the corresponding chunk dim.
+
+    zarr3 requires shard dims to be exact multiples of inner chunk dims. When a
+    shard dim is clamped to the array extent it may no longer satisfy this, so
+    this re-aligns it. Each dim is floored to at least one chunk.
+    """
+    return [max(c, (s // c) * c) for s, c in zip(shard_shape, chunk_shape)]
+
+
+# ---------------------------------------------------------------------------
 # Spec builders
 # ---------------------------------------------------------------------------
 

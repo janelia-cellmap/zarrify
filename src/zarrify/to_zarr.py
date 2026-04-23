@@ -14,7 +14,7 @@ from zarrify.formats.tiff_stack import TiffStack
 from zarrify.formats.zarr2 import Zarr2Group
 from zarrify.utils.dask_utils import initialize_dask_client, check_shardslab_fits_in_ram
 from zarrify.utils.pydantic_models import validate_config
-from zarrify.utils.ts_utils import build_codec, zarr3_spec
+from zarrify.utils.ts_utils import align_shard_to_chunks, build_codec, zarr3_spec
 from zarrify.utils.zarr_utils import create_output_array
 
 logging.basicConfig(
@@ -135,9 +135,13 @@ def to_zarr(src : str,
             logger.info(f"Reshaping chunks to match data dimensionality")
             zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
             logger.info(f"Reshaped chunks: {zarr_chunks}")
-        if shard_shape is not None and len(shard_shape) != len(dataset.shape):
+        if shard_shape is not None:
             shard_shape = list(shard_shape)[-len(dataset.shape):]
-            logger.info(f"Trimmed shard_shape to {shard_shape}")
+            shard_shape = align_shard_to_chunks(
+                [min(s, dim) for s, dim in zip(shard_shape, dataset.shape)],
+                zarr_chunks,
+            )
+            logger.info(f"Aligned shard_shape to {shard_shape}")
 
         # check multiscale custom scale parameters before expensive data copying
         if multiscale:
