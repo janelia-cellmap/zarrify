@@ -1,7 +1,6 @@
 from pydantic import BaseModel, field_validator, model_validator
 from typing import Union, Optional, Literal, List, Tuple
 import math
-import zarr
 import click
 import yaml
 import pint
@@ -18,6 +17,9 @@ class ZarrifyConfig(BaseModel):
     extra_directives: Optional[Union[List[str], Tuple[str, ...]]]  = []
     
     zarr_chunks: List[int] = [3, 64, 128, 128]
+    shard_shape: Optional[List[int]] = None
+    codec: Literal['zstd', 'gzip', 'blosc'] = 'zstd'
+    codec_level: Optional[int] = None  # filled by validator when omitted: zstd→3, gzip→6, blosc→5
     axes: List[str] = ["c", "z", "y", "x"]
     translation: List[float] = [0.0, 0.0, 0.0, 0.0]
     scale: List[float] = [1.0, 1.0, 1.0, 1.0]
@@ -87,26 +89,43 @@ class ZarrifyConfig(BaseModel):
                 raise ValueError(f"Invalid physical unit: {u}")
         return v
     
+    @field_validator('codec_level')
+    def codec_level_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError('codec_level must be > 0')
+        return v
+
+    @model_validator(mode='after')
+    def set_codec_level_default(self):
+        if self.codec_level is None:
+            self.codec_level = {'zstd': 3, 'gzip': 6, 'blosc': 5}[self.codec]
+        return self
+
+
+    @field_validator('shard_shape')
+    def shard_shape_dtype(cls, v):
+        if v is not None and not all(isinstance(x, int) and x > 0 for x in v):
+            raise TypeError("All shard_shape dimensions must be positive integers")
+        return v
+
     @field_validator('ms_workers')
     def ms_workers_positive(cls, v):
         if v <= 0:
             raise ValueError('Number of workers must be > 0')
         return v
 
-    
     @model_validator(mode="before")
     def check_dimensions(cls, values):
-                
         params = ["zarr_chunks",
                   "axes",
                   "units",
                   "scale",
                   "translation",
                   ]
-        
+
         lengths = {
-            f: len(values[f]) 
-            for f in params 
+            f: len(values[f])
+            for f in params
             if f in values and values[f] is not None
         }
 
@@ -115,14 +134,27 @@ class ZarrifyConfig(BaseModel):
                 f"Length mismatch among fields: {lengths}"
             )
 
-        # custom scale factors            
+        # shard_shape must have same ndim as zarr_chunks, and each shard dim >= chunk dim
+        shard_shape = values.get('shard_shape')
+        zarr_chunks = values.get('zarr_chunks')
+        if shard_shape is not None and zarr_chunks is not None:
+            if len(shard_shape) != len(zarr_chunks):
+                raise ValueError(
+                    f"shard_shape length ({len(shard_shape)}) must match zarr_chunks length ({len(zarr_chunks)})"
+                )
+            bad = [(s, c) for s, c in zip(shard_shape, zarr_chunks) if s < c]
+            if bad:
+                raise ValueError(
+                    f"Each shard_shape dim must be >= the corresponding zarr_chunks dim. "
+                    f"Violations (shard, chunk): {bad}"
+                )
+
+        # custom scale factors
         scale_factors = values.get('custom_scale_factors')
         if scale_factors:
-            # check that each scale is a factor of 2:
             if not all([x > 0 and abs(math.log2(x) - round(math.log2(x))) < 1e-10 for xs in scale_factors for x in xs]):
                 raise ValueError(f'Some of the factors are not a power of 2.')
-            
-            # check that multiscale factor windows shape==len(array.chunksize) (preliminary check)
+
             for window in scale_factors:
                 if len(window) != len(values.get('zarr_chunks')):
                     raise ValueError(f'number of dimensions of the window and array dimensions must match')
