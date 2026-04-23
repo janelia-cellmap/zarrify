@@ -14,7 +14,7 @@ from dask.array.core import normalize_chunks, slices_from_chunks
 from dask.distributed import Client, wait
 from toolz import partition_all
 
-from zarrify.utils.dask_utils import check_shardslab_fits_in_ram
+from zarrify.utils.dask_utils import check_shardslab_fits_in_ram, raise_on_task_errors
 from zarrify.utils.ts_utils import align_shard_to_chunks, n5_spec, zarr3_spec, open_ts, zstd_codec
 from zarrify.utils.volume import Volume
 
@@ -361,6 +361,7 @@ class N5Group(Volume):
                     f"Submitted {len(part)} tasks to the scheduler in {time.time() - start:.2f}s"
                 )
                 wait(fut)
+                raise_on_task_errors(fut)
                 logging.info(
                     f"Completed {len(part)} tasks in {time.time() - start:.2f}s"
                 )

@@ -9,6 +9,7 @@ from dask.array.core import normalize_chunks, slices_from_chunks
 from dask.distributed import Client, wait
 from tifffile import imread
 
+from zarrify.utils.dask_utils import raise_on_task_errors
 from zarrify.utils.ts_utils import open_ts
 from zarrify.utils.volume import Volume
 
@@ -129,6 +130,7 @@ class Tiff(Volume):
             f"{time.time() - start:.4f}s"
         )
         wait(fut)
+        raise_on_task_errors(fut)
         logger.info(f"Completed {len(slice_tuples)} tasks in {time.time() - start:.2f}s")
 
 

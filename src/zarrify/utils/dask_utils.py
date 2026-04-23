@@ -1,7 +1,6 @@
 from dask_jobqueue import LSFCluster
 from dask.distributed import Client, LocalCluster
 import os
-import sys
 import logging
 import dask
 import numpy as np
@@ -57,6 +56,17 @@ def initialize_dask_client(cluster_type: str | None = None, log_dir: str = None,
         text_file.write(str(client.dashboard_link))
 
     return client
+
+
+def raise_on_task_errors(futures: list) -> None:
+    """Re-raise the first worker exception found in *futures*.
+
+    Call immediately after wait(futures). All futures are already done at this
+    point so .result() on a failed future is instant — it just re-raises.
+    """
+    for f in futures:
+        if f.status == "error":
+            f.result()
 
 
 def check_shardslab_fits_in_ram(
