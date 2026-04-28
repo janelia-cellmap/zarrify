@@ -101,8 +101,9 @@ class N5Group(Volume):
         Returns
         -------
         list[str]
-            Paths relative to self.store_path, suitable for passing to
-            n5_spec() and zarr3_spec().
+            Paths relative to root_path, suitable for computing output paths.
+            Use os.path.join(self.path, rel_path) to get the store-relative
+            path needed by n5_spec().
         """
         array_paths = []
         for dirpath, _, filenames in os.walk(root_path):
@@ -115,7 +116,7 @@ class N5Group(Volume):
                     continue
             # N5 arrays carry 'dataType' and 'dimensions' in their attributes
             if 'dataType' in attrs and 'dimensions' in attrs:
-                array_paths.append(os.path.relpath(dirpath, self.store_path))
+                array_paths.append(os.path.relpath(dirpath, root_path))
         return array_paths
 
     def _copy_n5_group_attrs(self, root_path: str, z_root: zarr.Group) -> None:
@@ -147,7 +148,7 @@ class N5Group(Volume):
             for k, v in attrs.items():
                 target.attrs[k] = v
 
-    def _copy_n5_array_attrs(self, dest: str, array_paths: list[str]) -> None:
+    def _copy_n5_array_attrs(self, n5_root: str, dest: str, array_paths: list[str]) -> None:
         """Copy N5 array attributes (e.g. transform) to the output zarr3 arrays.
 
         Called after TensorStore has created the output zarr3 arrays so that
@@ -155,14 +156,16 @@ class N5Group(Volume):
 
         Parameters
         ----------
+        n5_root:
+            Absolute path to the N5 root being converted (may be a sub-group).
         dest:
             Absolute path to the output zarr3 store root.
         array_paths:
-            Store-relative paths of arrays whose attributes should be copied.
+            Paths relative to n5_root of arrays whose attributes should be copied.
         """
         z_store = zarr.storage.LocalStore(dest)
         for rel_path in array_paths:
-            attrs_file = os.path.join(self.store_path, rel_path, 'attributes.json')
+            attrs_file = os.path.join(n5_root, rel_path, 'attributes.json')
             if not os.path.exists(attrs_file):
                 continue
             with open(attrs_file) as f:
@@ -314,7 +317,8 @@ class N5Group(Volume):
         self._copy_n5_group_attrs(n5_root_path, z_root)
 
         for rel_path in n5_array_paths:
-            src_spec = n5_spec(self.store_path, rel_path)
+            store_rel_path = os.path.join(self.path, rel_path) if self.path else rel_path
+            src_spec = n5_spec(self.store_path, store_rel_path)
             src_arr = open_ts(src_spec)
             shape = src_arr.shape
             dtype = np.dtype(src_arr.dtype.numpy_dtype)
@@ -367,7 +371,7 @@ class N5Group(Volume):
                 )
 
         # copy array-level N5 attributes (e.g. transform) then build OME metadata
-        self._copy_n5_array_attrs(dest, n5_array_paths)
+        self._copy_n5_array_attrs(n5_root_path, dest, n5_array_paths)
         z_root = zarr.open_group(store=z_store, mode='a')
         self.normalize_to_omengff(z_root)
 
