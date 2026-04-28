@@ -51,7 +51,7 @@ def init_dataset(src :str,
     
     ext = src_path.suffix.lower()
 
-    if ext=='.n5':
+    if any(part.endswith('.n5') for part in src_path.parts):
         return N5Group(*params)
     elif ext == '.zarr':
         if (src_path / '.zgroup').exists():
