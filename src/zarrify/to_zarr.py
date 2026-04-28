@@ -102,27 +102,29 @@ def to_zarr(src : str,
         codec (str, optional): compression codec name ('zstd', 'gzip', 'blosc'). Defaults to 'zstd'.
         codec_level (int | None, optional): codec compression level. None uses per-codec default.
     """
+    logger.info(f"Initializing dataset from {src}")
     dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
+    logger.info(f"Dataset type: {type(dataset).__name__}")
 
     # Handle N5Group separately as it has custom zarr creation logic
     codec_dict = build_codec(codec, codec_level)
 
     if isinstance(dataset, N5Group):
-        # N5 handles zarr creation internally due to tree structure complexity
-        # RAM check is done per-array inside write_to_zarr (arrays can have different shapes)
+        logger.info("Detected N5Group — scaling workers and starting write")
         client.cluster.scale(workers)
         dataset.write_to_zarr(dest, client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
         client.cluster.scale(0)
-
-        # populate zarr metadata
+        logger.info("N5Group write complete — writing OME metadata")
         dataset.add_ome_metadata(dest)
+        logger.info("Done")
         return
 
     if isinstance(dataset, Zarr2Group):
-        # RAM check is done per-array inside write_to_zarr
+        logger.info("Detected Zarr2Group — scaling workers and starting write")
         client.cluster.scale(workers)
         dataset.write_to_zarr(str(dest), client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
         client.cluster.scale(0)
+        logger.info("Zarr2Group write complete")
         return
     else:
         logger.info(f"Input dataset: {type(dataset)}")
