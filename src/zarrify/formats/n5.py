@@ -203,8 +203,11 @@ class N5Group(Volume):
                                                                                     units_list)]
         z_attrs['multiscales'][0]['version'] = '0.4'
         z_attrs['multiscales'][0]['name'] = zgroup.name
-        z_attrs['multiscales'][0]['coordinateTransformations'] = [{"type": "scale",
-                        "scale": [1.0, 1.0, 1.0]}, {"type" : "translation", "translation" : [1.0, 1.0, 1.0]}]
+        ndim = len(zgroup.attrs['axes'])
+        z_attrs['multiscales'][0]['coordinateTransformations'] = [
+            {"type": "scale", "scale": [1.0] * ndim},
+            {"type": "translation", "translation": [0.0] * ndim},
+        ]
 
         return z_attrs
 

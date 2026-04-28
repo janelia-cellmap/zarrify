@@ -114,9 +114,6 @@ def to_zarr(src : str,
         client.cluster.scale(workers)
         dataset.write_to_zarr(dest, client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
         client.cluster.scale(0)
-        logger.info("N5Group write complete — writing OME metadata")
-        dataset.add_ome_metadata(dest)
-        logger.info("Done")
         return
 
     if isinstance(dataset, Zarr2Group):
