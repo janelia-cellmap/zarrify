@@ -87,12 +87,14 @@ class Zarr2Group(Volume):
         )
 
         array_paths = self._find_arrays()
+        logger.info(f"Found {len(array_paths)} zarr v2 arrays: {array_paths}")
 
         dst_store = zarr.storage.LocalStore(dest)
         dst_root = zarr.open_group(store=dst_store, mode='a')
         self._copy_group_attrs(dst_root)
 
         for rel_path in array_paths:
+            logger.info(f"Processing array: {rel_path}")
             zarray_path = os.path.join(self.src_path, rel_path, '.zarray')
             with open(zarray_path) as f:
                 zarray_meta = json.load(f)
@@ -126,8 +128,10 @@ class Zarr2Group(Volume):
             dest_arr = open_ts(dst_spec)
             dest_chunks = dest_arr.chunk_layout.write_chunk.shape
 
+            logger.info(f"{rel_path}: shape={shape}, dtype={dtype}, chunk={arr_chunk_shape}, shard={arr_shard_shape}")
             out_slices = slices_from_chunks(normalize_chunks(dest_chunks, shape=shape))
             out_slices_partitioned = tuple(partition_all(100000, out_slices))
+            logger.info(f"{rel_path}: {len(out_slices)} total slices, {len(out_slices_partitioned)} batch(es)")
 
             for idx, part in enumerate(out_slices_partitioned):
                 logger.info(f"{rel_path}: {idx + 1} / {len(out_slices_partitioned)}")
