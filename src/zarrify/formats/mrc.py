@@ -45,7 +45,7 @@ class Mrc3D(Volume):
         self.shape = np.squeeze(self.memmap.data.shape)
         self.dtype = self.memmap.data.dtype
 
-    def write_to_zarr(self, dst_spec: dict, client: Client) -> None:
+    def write_to_zarr(self, dst_spec: dict, client: Client, expand_dims: bool = False) -> None:
         """Read the MRC file in chunks and write each chunk to a zarr3 array via TensorStore.
 
         Chunks that are entirely zero are skipped to avoid unnecessary writes.
@@ -57,6 +57,9 @@ class Mrc3D(Volume):
             by :func:`~zarrify.utils.ts_utils.zarr3_spec`.
         client:
             Dask distributed client used to parallelise chunk writes.
+        expand_dims:
+            When True, the destination array has a leading size-1 channel
+            dimension; the leading slice is stripped when reading the source.
         """
         logging.basicConfig(
             level=logging.INFO,
@@ -78,7 +81,7 @@ class Mrc3D(Volume):
         for idx, part in enumerate(out_slices_partitioned):
             logging.info(f"{idx + 1} / {len(out_slices_partitioned)}")
             start = time.time()
-            fut = client.map(lambda v: save_chunk(src_path, dst_spec, v), part)
+            fut = client.map(lambda v: save_chunk(src_path, dst_spec, v, expand_dims), part)
             logging.info(
                 f"Submitted {len(part)} tasks to the scheduler in {time.time() - start:.2f}s"
             )
@@ -86,7 +89,8 @@ class Mrc3D(Volume):
             logging.info(f"Completed {len(part)} tasks in {time.time() - start:.2f}s")
 
 
-def save_chunk(src_path: str, dst_spec: dict, chunk_slice: Tuple[slice, ...]) -> None:
+def save_chunk(src_path: str, dst_spec: dict, chunk_slice: Tuple[slice, ...],
+               expand_dims: bool = False) -> None:
     """Copy one chunk from an MRC file into a zarr3 TensorStore array.
 
     Chunks that are entirely zero are skipped to avoid unnecessary I/O.
@@ -98,10 +102,14 @@ def save_chunk(src_path: str, dst_spec: dict, chunk_slice: Tuple[slice, ...]) ->
     dst_spec:
         TensorStore zarr3 spec dict for the destination array.
     chunk_slice:
-        The slice tuple identifying the chunk region to copy.
+        The slice tuple identifying the chunk region in the destination array.
+    expand_dims:
+        When True, strip the leading slice when reading the source (which has
+        no channel dimension) and prepend np.newaxis before writing.
     """
     mrc_file = mrcfile.mmap(src_path, mode="r")
-    data = mrc_file.data[chunk_slice]
+    src_slice = chunk_slice[1:] if expand_dims else chunk_slice
+    data = mrc_file.data[src_slice]
     if not (data == 0).all():
         dest_arr = open_ts(dst_spec)
-        dest_arr[chunk_slice].write(data).result()
+        dest_arr[chunk_slice].write(data[np.newaxis] if expand_dims else data).result()
