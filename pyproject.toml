@@ -51,11 +51,11 @@ test = [
     "pytest"
 ]
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["osx-64", "osx-arm64", "linux-64"]
 [tool.pixi.tasks]
-dev-install = "pip install -e ."
+dev-install = "uv pip install -e . --system"
 zarrify = { cmd = "zarrify" }
 zarr-multiscale = { cmd = "zarr-multiscale" }
 test = "pytest"
@@ -65,7 +65,7 @@ clean = "rm -rf build/ dist/ *.egg-info/ .pytest_cache/ __pycache__/ dask_dashbo
 pytest = "*"
 
 [tool.pixi.feature.test.tasks]
-test-install = "pip install -e ."
+test-install = "uv pip install -e . --system"
 test = { cmd = "pytest", depends-on = ["test-install"] }
 
 [tool.pixi.environments]
