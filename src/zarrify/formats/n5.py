@@ -216,25 +216,27 @@ class N5Group(Volume):
 
         return z_attrs
 
-    def normalize_to_omengff(self, zgroup: zarr.Group) -> None:
+    def normalize_to_omengff(self, zgroup: zarr.Group, expand_dims: bool = False) -> None:
         """Recursively convert N5 metadata to OME-NGFF multiscales attributes.
 
         Parameters
         ----------
         zgroup:
             Root zarr group of the output zarr store.
+        expand_dims:
+            When True, prepend a channel axis to axes and coordinate transforms.
         """
         group_keys = zgroup.keys()
 
         for key in chain(group_keys, '/'):
             if isinstance(zgroup[key], zarr.Group):
                 if key!='/':
-                    self.normalize_to_omengff(zgroup[key])
+                    self.normalize_to_omengff(zgroup[key], expand_dims)
                 if 'scales' in zgroup[key].attrs.asdict():
-                    zattrs = self.apply_ome_template(zgroup[key])
+                    zattrs = self.apply_ome_template(zgroup[key], expand_dims)
                     unsorted_datasets = []
                     for arr in self._iter_arrays(zgroup[key]):
-                        unsorted_datasets.append(self.ome_dataset_metadata(arr[1], zgroup[key]))
+                        unsorted_datasets.append(self.ome_dataset_metadata(arr[1], zgroup[key], expand_dims))
 
                     #1.apply natural sort to organize datasets metadata array for different resolution degrees (s0 -> s10)
                     #2.add datasets metadata to the omengff template
@@ -251,7 +253,8 @@ class N5Group(Volume):
                 yield from N5Group._iter_arrays(node)
 
     @staticmethod
-    def ome_dataset_metadata(n5arr: zarr.Array, group: zarr.Group) -> dict:
+    def ome_dataset_metadata(n5arr: zarr.Array, group: zarr.Group,
+                             expand_dims: bool = False) -> dict:
         """Build one OME-NGFF dataset metadata entry from an N5 array.
 
         Parameters
@@ -260,23 +263,27 @@ class N5Group(Volume):
             Source N5 array with a "transform" attribute.
         group:
             Parent group used to compute the relative path.
+        expand_dims:
+            When True, prepend 1.0/0.0 to the scale/translation vectors.
 
         Returns
         -------
         dict
             A single entry suitable for the "datasets" list in multiscales.
         """
-
         arr_attrs_n5 = n5arr.attrs['transform']
-        dataset_meta =  {
-                        "path": os.path.relpath(n5arr.path, group.path),
-                        "coordinateTransformations": [{
-                            'type': 'scale',
-                            'scale': arr_attrs_n5['scale']},{
-                            'type': 'translation',
-                            'translation' : arr_attrs_n5['translate']
-                        }]}
-
+        scale = arr_attrs_n5['scale']
+        translate = arr_attrs_n5['translate']
+        if expand_dims:
+            scale = [1.0] + list(scale)
+            translate = [0.0] + list(translate)
+        dataset_meta = {
+            "path": os.path.relpath(n5arr.path, group.path),
+            "coordinateTransformations": [
+                {'type': 'scale', 'scale': scale},
+                {'type': 'translation', 'translation': translate},
+            ],
+        }
         return dataset_meta
 
     def write_to_zarr(
