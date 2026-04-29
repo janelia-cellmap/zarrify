@@ -69,7 +69,7 @@ class Tiff(Volume):
         self.metadata["translation"] = self.metadata["translation"][-self.ndim:]
         self.metadata["units"] = self.metadata["units"][-self.ndim:]
 
-    def write_to_zarr(self, dst_spec: dict, client: Client) -> None:
+    def write_to_zarr(self, dst_spec: dict, client: Client, expand_dims: bool = False) -> None:
         """Read the TIFF file in slabs and write each slab to a zarr3 array via TensorStore.
 
         Parameters
@@ -79,6 +79,9 @@ class Tiff(Volume):
             by :func:`~zarrify.utils.ts_utils.zarr3_spec`.
         client:
             Dask distributed client used to parallelise slab writes.
+        expand_dims:
+            When True, the destination array has a leading size-1 channel
+            dimension; each slab is written with an extra np.newaxis prepended.
         """
         # TODO: With large shard shapes (e.g. 1024^3) the slab thickness along
         # the slab axis becomes 1024 voxels, potentially exhausting worker memory.
@@ -87,21 +90,25 @@ class Tiff(Volume):
         # can process multiple passes concurrently without holding the full shard
         # in memory at once.
 
-        axes = self.metadata["axes"]
-        slab_axis = axes.index("z") if "z" in axes else 0
+        # axes in metadata are already trimmed to source ndim; use them to find z.
+        src_axes = self.metadata["axes"][1:] if expand_dims else self.metadata["axes"]
+        slab_axis = src_axes.index("z") if "z" in src_axes else 0
 
         dest_arr = open_ts(dst_spec)
+        # dest_chunks includes the leading 1 when expand_dims; strip it for
+        # slice computation which is done against the source shape.
         dest_chunks = list(dest_arr.chunk_layout.write_chunk.shape)
+        src_chunks = dest_chunks[1:] if expand_dims else dest_chunks
 
-        slice_chunks = dest_chunks
+        slice_chunks = src_chunks
         if self.optimize_reads:
             logger.info("Optimizing read chunking...")
             logger.info(f"Output zarr3 write-chunk shape: {dest_chunks}")
             logger.info(f"Input TIFF chunk shape: {self._tiff_chunks}")
-            slice_chunks = dest_chunks[: slab_axis + 1].copy()
+            slice_chunks = src_chunks[: slab_axis + 1].copy()
 
             for dest_chunkdim, tiff_chunkdim, tiff_dim in zip(
-                dest_chunks[slab_axis + 1:],
+                src_chunks[slab_axis + 1:],
                 self._tiff_chunks[slab_axis + 1:],
                 self.shape[slab_axis + 1:],
             ):
@@ -123,7 +130,7 @@ class Tiff(Volume):
 
         start = time.time()
         fut = client.map(
-            lambda v: write_volume_slab(v, dst_spec, src_path), slice_tuples
+            lambda v: write_volume_slab(v, dst_spec, src_path, expand_dims), slice_tuples
         )
         logger.info(
             f"Submitted {len(slice_tuples)} tasks to the scheduler in "
@@ -134,7 +141,8 @@ class Tiff(Volume):
         logger.info(f"Completed {len(slice_tuples)} tasks in {time.time() - start:.2f}s")
 
 
-def write_volume_slab(slice_tuple: tuple, dst_spec: dict, src_path: str) -> None:
+def write_volume_slab(slice_tuple: tuple, dst_spec: dict, src_path: str,
+                      expand_dims: bool = False) -> None:
     """Copy one slab from a TIFF file into a zarr3 TensorStore array.
 
     The TIFF is read directly via tifffile into NumPy (no TensorStore TIFF
@@ -143,12 +151,18 @@ def write_volume_slab(slice_tuple: tuple, dst_spec: dict, src_path: str) -> None
     Parameters
     ----------
     slice_tuple:
-        The slice tuple identifying the slab region to copy.
+        The slice tuple identifying the slab region in the source array.
     dst_spec:
         TensorStore zarr3 spec dict for the destination array.
     src_path:
         Path to the source TIFF file.
+    expand_dims:
+        When True, prepend a size-1 channel dimension to the data before
+        writing and offset the destination slice accordingly.
     """
-    data = imread(src_path)[slice_tuple]
+    data = np.asarray(imread(src_path)[slice_tuple])
     dest_arr = open_ts(dst_spec)
-    dest_arr[slice_tuple].write(np.asarray(data)).result()
+    if expand_dims:
+        dest_arr[(slice(0, 1), *slice_tuple)].write(data[np.newaxis]).result()
+    else:
+        dest_arr[slice_tuple].write(data).result()
