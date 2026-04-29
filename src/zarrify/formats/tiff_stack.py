@@ -49,7 +49,7 @@ class TiffStack(Volume):
         self.shape = tuple(np.squeeze([len(self.stack_list)] + tile_meta["shape"]))
         self.ndim = len(self.shape)
 
-    def write_to_zarr(self, dst_spec: dict, client: Client) -> None:
+    def write_to_zarr(self, dst_spec: dict, client: Client, expand_dims: bool = False) -> None:
         """Assemble tiles into slabs and write each slab to a zarr3 array via TensorStore.
 
         Parameters
@@ -59,6 +59,9 @@ class TiffStack(Volume):
             by :func:`~zarrify.utils.ts_utils.zarr3_spec`.
         client:
             Dask distributed client used to parallelise slab writes.
+        expand_dims:
+            When True, the destination array has a leading size-1 channel
+            dimension; tiles are written at index [0, chunk_num:...].
         """
         # TODO: With large shard shapes (e.g. 1024^3) the slab thickness along
         # z becomes 1024 voxels, which may exhaust worker memory when assembling
@@ -68,12 +71,13 @@ class TiffStack(Volume):
         # in memory at once.
 
         dest_arr = open_ts(dst_spec)
-        tiff_chunkdim = dest_arr.chunk_layout.write_chunk.shape[0]
-        chunks_list = np.arange(0, dest_arr.shape[0], tiff_chunkdim)
+        z_axis = 1 if expand_dims else 0
+        tiff_chunkdim = dest_arr.chunk_layout.write_chunk.shape[z_axis]
+        chunks_list = np.arange(0, dest_arr.shape[z_axis], tiff_chunkdim)
 
         start = time.time()
         fut = client.map(
-            lambda v: write_tile_slab(v, dst_spec, self.stack_list), chunks_list
+            lambda v: write_tile_slab(v, dst_spec, self.stack_list, expand_dims), chunks_list
         )
         logging.info(
             f"Submitted {len(chunks_list)} tasks to the scheduler in {time.time() - start:.4f}s"
@@ -82,7 +86,8 @@ class TiffStack(Volume):
         logging.info(f"Completed {len(chunks_list)} tasks in {time.time() - start:.2f}s")
 
 
-def write_tile_slab(chunk_num: int, dst_spec: dict, src_volume: list) -> None:
+def write_tile_slab(chunk_num: int, dst_spec: dict, src_volume: list,
+                    expand_dims: bool = False) -> None:
     """Assemble one slab from individual TIFF tiles and write it to a zarr3 TensorStore array.
 
     Parameters
@@ -93,13 +98,16 @@ def write_tile_slab(chunk_num: int, dst_spec: dict, src_volume: list) -> None:
         TensorStore zarr3 spec dict for the destination array.
     src_volume:
         Ordered list of TIFF file paths comprising the full stack.
+    expand_dims:
+        When True, the destination has a leading size-1 channel dimension.
     """
     dest_arr = open_ts(dst_spec)
-    total_z = dest_arr.shape[0]
-    tiff_chunkdim = dest_arr.chunk_layout.write_chunk.shape[0]
+    z_axis = 1 if expand_dims else 0
+    total_z = dest_arr.shape[z_axis]
+    tiff_chunkdim = dest_arr.chunk_layout.write_chunk.shape[z_axis]
 
     actual_thickness = min(tiff_chunkdim, total_z - chunk_num)
-    slab_shape = [actual_thickness] + list(dest_arr.shape[1:])
+    slab_shape = [actual_thickness] + list(dest_arr.shape[z_axis + 1:])
     np_slab = np.empty(slab_shape, dtype=np.dtype(dest_arr.dtype.numpy_dtype))
 
     for slab_index in range(chunk_num, chunk_num + actual_thickness):
@@ -108,4 +116,7 @@ def write_tile_slab(chunk_num: int, dst_spec: dict, src_volume: list) -> None:
         except Exception:
             logging.info(f"Tiff tile with index {slab_index} is not present in tiff stack.")
 
-    dest_arr[chunk_num: chunk_num + actual_thickness].write(np_slab).result()
+    if expand_dims:
+        dest_arr[0, chunk_num: chunk_num + actual_thickness].write(np_slab).result()
+    else:
+        dest_arr[chunk_num: chunk_num + actual_thickness].write(np_slab).result()
