@@ -293,6 +293,7 @@ class N5Group(Volume):
         chunk_shape: list[int],
         shard_shape: list[int] | None = None,
         codec: dict = zstd_codec(level=6),
+        expand_dims: bool = False,
     ) -> None:
         """Copy all N5 arrays into a zarr3 store via TensorStore.
 
@@ -337,12 +338,14 @@ class N5Group(Volume):
             src_arr = open_ts(src_spec)
             shape = src_arr.shape
             dtype = np.dtype(src_arr.dtype.numpy_dtype)
+            out_shape = (1, *shape) if expand_dims else shape
 
             # trim chunk/shard shapes to array ndim; N5 trees can hold mixed-dimensionality arrays
-            arr_chunk_shape = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
+            arr_chunk_shape_base = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
+            arr_chunk_shape = ([1] + arr_chunk_shape_base) if expand_dims else arr_chunk_shape_base
             arr_shard_shape = (
                 align_shard_to_chunks(
-                    [min(s, dim) for s, dim in zip(list(shard_shape)[-len(shape):], shape)],
+                    [min(s, dim) for s, dim in zip(list(shard_shape)[-len(out_shape):], out_shape)],
                     arr_chunk_shape,
                 )
                 if shard_shape is not None else None
@@ -353,7 +356,7 @@ class N5Group(Volume):
             dst_spec = zarr3_spec(
                 store_path=dest,
                 array_path=rel_path,
-                shape=shape,
+                shape=out_shape,
                 dtype=dtype,
                 chunk_shape=arr_chunk_shape,
                 shard_shape=arr_shard_shape,
@@ -365,7 +368,7 @@ class N5Group(Volume):
             dest_chunks = dest_arr.chunk_layout.write_chunk.shape
 
             out_slices = slices_from_chunks(
-                normalize_chunks(dest_chunks, shape=shape)
+                normalize_chunks(dest_chunks, shape=out_shape)
             )
             # break the slices up into batches, to make things easier for the dask scheduler
             out_slices_partitioned = tuple(partition_all(100000, out_slices))
@@ -374,7 +377,7 @@ class N5Group(Volume):
                 logging.info(f"{idx + 1} / {len(out_slices_partitioned)}")
                 start = time.time()
                 fut = client.map(
-                    lambda v: save_chunk(src_spec, dst_spec, v, invert=False), part
+                    lambda v: save_chunk(src_spec, dst_spec, v, invert=False, expand_dims=expand_dims), part
                 )
                 logging.info(
                     f"Submitted {len(part)} tasks to the scheduler in {time.time() - start:.2f}s"
@@ -388,7 +391,7 @@ class N5Group(Volume):
         # copy array-level N5 attributes (e.g. transform) then build OME metadata
         self._copy_n5_array_attrs(n5_root_path, dest, n5_array_paths)
         z_root = zarr.open_group(store=z_store, mode='a')
-        self.normalize_to_omengff(z_root)
+        self.normalize_to_omengff(z_root, expand_dims)
 
 
 def save_chunk(
@@ -396,6 +399,7 @@ def save_chunk(
     dst_spec: dict,
     chunk_slice: Tuple[slice, ...],
     invert: bool = False,
+    expand_dims: bool = False,
 ) -> None:
     """Copy one chunk from an N5 array into a zarr3 TensorStore array.
 
@@ -408,16 +412,22 @@ def save_chunk(
     dst_spec:
         TensorStore zarr3 driver spec for the destination array.
     chunk_slice:
-        Slice tuple identifying the chunk region to copy.
+        Slice tuple identifying the chunk region in the destination array.
     invert:
         When True, apply bitwise inversion to the data before writing.
+    expand_dims:
+        When True, strip the leading slice when reading the source (which has
+        no channel dimension) and prepend np.newaxis before writing.
     """
     src = open_ts(src_spec)
-    data = src[chunk_slice].read().result()
+    src_slice = chunk_slice[1:] if expand_dims else chunk_slice
+    data = src[src_slice].read().result()
     # only store data if it is not all 0s
     if (data == 0).all():
         return
     if invert:
         data = np.invert(data)
+    if expand_dims:
+        data = data[np.newaxis]
     dest = open_ts(dst_spec)
     dest[chunk_slice].write(data).result()
