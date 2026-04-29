@@ -28,7 +28,7 @@ class ZarrifyConfig(BaseModel):
     
     multiscale: bool = False
     ms_workers: int = 100
-    data_origin: Literal['raw', 'labels']
+    data_origin: Optional[Literal['raw', 'labels']] = None
     antialiasing: bool = False
     normalize_voxel_size: bool = False
     custom_scale_factors:  Optional[List[List[float]]] = None
@@ -99,6 +99,12 @@ class ZarrifyConfig(BaseModel):
     def set_codec_level_default(self):
         if self.codec_level is None:
             self.codec_level = {'zstd': 3, 'gzip': 6, 'blosc': 5}[self.codec]
+        return self
+
+    @model_validator(mode='after')
+    def data_origin_required_for_multiscale(self):
+        if self.multiscale and self.data_origin is None:
+            raise ValueError("data_origin is required when multiscale is true")
         return self
 
 
