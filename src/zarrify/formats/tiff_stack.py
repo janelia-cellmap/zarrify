@@ -1,9 +1,9 @@
+import json
 import logging
 import os
 import time
 from glob import glob
 
-import dask.array as da
 import numpy as np
 from dask.distributed import Client, wait
 from natsort import natsorted
@@ -41,13 +41,13 @@ class TiffStack(Volume):
         super().__init__(src_path, axes, scale, translation, units)
 
         self.stack_list = natsorted(glob(os.path.join(src_path, "*.tif*")))
-        probe_image_store = imread(
-            os.path.join(src_path, self.stack_list[0]), aszarr=True
-        )
-        probe_image_arr = da.from_zarr(probe_image_store)
+        probe_store = imread(os.path.join(src_path, self.stack_list[0]), aszarr=True)
+        tile_meta = json.loads(probe_store[".zarray"])
+        probe_store.close()
 
-        self.dtype = probe_image_arr.dtype
-        self.shape = np.squeeze([len(self.stack_list)] + list(probe_image_arr.shape))
+        self.dtype = np.dtype(tile_meta["dtype"])
+        self.shape = tuple(np.squeeze([len(self.stack_list)] + tile_meta["shape"]))
+        self.ndim = len(self.shape)
 
     def write_to_zarr(self, dst_spec: dict, client: Client) -> None:
         """Assemble tiles into slabs and write each slab to a zarr3 array via TensorStore.
