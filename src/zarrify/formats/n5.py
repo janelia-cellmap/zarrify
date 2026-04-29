@@ -177,13 +177,16 @@ class N5Group(Volume):
             for k, v in attrs.items():
                 z_arr.attrs[k] = v
 
-    def apply_ome_template(self, zgroup: zarr.Group) -> dict:
+    def apply_ome_template(self, zgroup: zarr.Group, expand_dims: bool = False) -> dict:
         """Build an OME-NGFF v0.4 multiscales attribute dict from N5 group attributes.
 
         Parameters
         ----------
         zgroup:
             Zarr group with N5-style "axes", "units", and "scales" attributes.
+        expand_dims:
+            When True, prepend a channel axis to the axes list and an extra
+            element to the top-level coordinateTransformations.
 
         Returns
         -------
@@ -196,14 +199,16 @@ class N5Group(Volume):
         ureg = pint.UnitRegistry()
         units_list = [str(ureg.Unit(unit)) for unit in zgroup.attrs['units']]
 
+        axes = [{"name": axis, "type": "space", "unit": unit}
+                for (axis, unit) in zip(zgroup.attrs['axes'], units_list)]
+        if expand_dims:
+            axes = [{"name": "c", "type": "channel"}] + axes
+
         #populate .zattrs
-        z_attrs['multiscales'][0]['axes'] = [{"name": axis,
-                                            "type": "space",
-                                            "unit": unit} for (axis, unit) in zip(zgroup.attrs['axes'],
-                                                                                    units_list)]
+        z_attrs['multiscales'][0]['axes'] = axes
         z_attrs['multiscales'][0]['version'] = '0.4'
         z_attrs['multiscales'][0]['name'] = zgroup.name
-        ndim = len(zgroup.attrs['axes'])
+        ndim = len(axes)
         z_attrs['multiscales'][0]['coordinateTransformations'] = [
             {"type": "scale", "scale": [1.0] * ndim},
             {"type": "translation", "translation": [0.0] * ndim},
