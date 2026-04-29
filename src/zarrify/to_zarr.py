@@ -42,13 +42,13 @@ def init_dataset(src :str,
         ValueError: return value error if the input file format not in the list.
 
     Returns:
-        Union[TiffStack, Tiff, N5Group, Mrc3D]: return a file format object depending on the input file format. 
-        \n All different file formats objects have identical instance methods (write_to_zarr, add_ome_metadata) to emulate API abstraction. 
+        Union[TiffStack, Tiff, N5Group, Mrc3D]: return a file format object depending on the input file format.
+        \n All different file formats objects have identical instance methods (write_to_zarr, add_ome_metadata) to emulate API abstraction.
     """
-    
+
     src_path = Path(src)
     params = (src, axes, scale, translation, units)
-    
+
     ext = src_path.suffix.lower()
 
     if any(part.endswith('.n5') for part in src_path.parts):
@@ -63,7 +63,7 @@ def init_dataset(src :str,
         return Mrc3D(*params)
     elif ext in (".tif", ".tiff"):
         return Tiff(*params, optimize_reads)
-    
+
     raise ValueError(f"Unsupported source type: {src}")
 
 def to_zarr(src : str,
@@ -77,6 +77,7 @@ def to_zarr(src : str,
             translation : list[float] = [0.0,]*4,
             units: list[str] = ['']+['nanometer',]*3,
             optimize_reads : bool = False,
+            expand_dims : bool = False,
             multiscale : bool = False,
             ms_workers: int = None,
             data_origin : str = None,
@@ -99,6 +100,7 @@ def to_zarr(src : str,
         translation (list[float], optional): offset (in physical units). Defaults to [0.0,]*4.
         units (list[str], optional): physical units. Defaults to ['']+['nanometer']*3.
         shard_shape (list[int] | None, optional): outer shard shape for sharded zarr3 arrays.
+        expand_dims (bool, optional): prepend a size-1 channel dimension to the output array.
         codec (str, optional): compression codec name ('zstd', 'gzip', 'blosc'). Defaults to 'zstd'.
         codec_level (int | None, optional): codec compression level. None uses per-codec default.
     """
@@ -112,14 +114,16 @@ def to_zarr(src : str,
     if isinstance(dataset, N5Group):
         logger.info("Detected N5Group — scaling workers and starting write")
         client.cluster.scale(workers)
-        dataset.write_to_zarr(dest, client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
+        dataset.write_to_zarr(dest, client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict,
+                              expand_dims=expand_dims)
         client.cluster.scale(0)
         return
 
     if isinstance(dataset, Zarr2Group):
         logger.info("Detected Zarr2Group — scaling workers and starting write")
         client.cluster.scale(workers)
-        dataset.write_to_zarr(str(dest), client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
+        dataset.write_to_zarr(str(dest), client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict,
+                              expand_dims=expand_dims)
         client.cluster.scale(0)
         logger.info("Zarr2Group write complete")
         return
@@ -128,16 +132,32 @@ def to_zarr(src : str,
         logger.info(f"Input dataset shape: {dataset.shape}")
         logger.info(f"Input dataset dtype: {dataset.dtype}")
         logger.info(f"Input dataset ndim: {dataset.ndim}")
-        # Reshape chunks and shard to match data dimensionality
+
+        # Tiff trims metadata to source ndim in __init__; TiffStack and MRC do not.
+        # Normalise here so all formats are consistent before the expand step.
+        for key in ('axes', 'units', 'scale', 'translation'):
+            dataset.metadata[key] = list(dataset.metadata[key])[-len(dataset.shape):]
+
+        # When expanding dims, prepend a channel axis to OME metadata so that
+        # add_ome_metadata writes axes/scale/translation/units for ndim+1.
+        if expand_dims:
+            dataset.metadata['axes'] = ['c'] + list(dataset.metadata['axes'])
+            dataset.metadata['units'] = [''] + list(dataset.metadata['units'])
+            dataset.metadata['scale'] = [1.0] + list(dataset.metadata['scale'])
+            dataset.metadata['translation'] = [0.0] + list(dataset.metadata['translation'])
+
+        out_shape = (1, *dataset.shape) if expand_dims else dataset.shape
+
+        # Reshape chunks and shard to match output dimensionality
         logger.info(f"Zarr chunks: {zarr_chunks}")
-        if len(zarr_chunks) != len(dataset.shape):
+        if len(zarr_chunks) != len(out_shape):
             logger.info(f"Reshaping chunks to match data dimensionality")
-            zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, dataset.shape)
+            zarr_chunks = dataset.reshape_to_arr_shape(zarr_chunks, out_shape)
             logger.info(f"Reshaped chunks: {zarr_chunks}")
         if shard_shape is not None:
-            shard_shape = list(shard_shape)[-len(dataset.shape):]
+            shard_shape = list(shard_shape)[-len(out_shape):]
             shard_shape = align_shard_to_chunks(
-                [min(s, dim) for s, dim in zip(shard_shape, dataset.shape)],
+                [min(s, dim) for s, dim in zip(shard_shape, out_shape)],
                 zarr_chunks,
             )
             logger.info(f"Aligned shard_shape to {shard_shape}")
@@ -148,14 +168,14 @@ def to_zarr(src : str,
                 ms_workers = workers
             if not data_origin:
                 raise ValueError('Data origin (raw/labels) is not specified')
-            
-            if custom_scale_factors:    
-                if any([int(s0_dim/ sc) > 32 for s0_dim, sc in zip(dataset.shape, custom_scale_factors[-1])]):
+
+            if custom_scale_factors:
+                if any([int(s0_dim/ sc) > 32 for s0_dim, sc in zip(out_shape, custom_scale_factors[-1])]):
                     raise ValueError('Not enough custom scale levels to generate full multiscale pyramid')
 
         # Create output zarr3 array via TensorStore
         full_scale_arr_name = 's0'
-        create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks,
+        create_output_array(dest, out_shape, dataset.dtype, zarr_chunks,
                             shard_shape=shard_shape, codec=codec_dict, array_path=full_scale_arr_name)
         dest_spec = zarr3_spec(store_path=dest, array_path=full_scale_arr_name)
         logger.info(f"Created output Zarr array at {dest}/{full_scale_arr_name}")
@@ -169,7 +189,7 @@ def to_zarr(src : str,
         client.cluster.scale(workers)
         if shard_shape is not None:
             check_shardslab_fits_in_ram(shard_shape, dataset.dtype, zarr_chunks, client)
-        dataset.write_to_zarr(dest_spec, client)
+        dataset.write_to_zarr(dest_spec, client, expand_dims=expand_dims)
         client.cluster.scale(0)
         logger.info(f"Completed writing all data to Zarr arrays")
 
@@ -187,8 +207,8 @@ def to_zarr(src : str,
                                     custom_scale_factors)
             client.cluster.scale(0)
             logger.info(f"Completed multiscal pyramid creation")
-        
-    
+
+
 
 @click.command("zarrify")
 @click.option(
