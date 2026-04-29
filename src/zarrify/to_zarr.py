@@ -286,6 +286,11 @@ def to_zarr(src : str,
     is_flag=True,
     help="Enable optimized image loading using chunk-aligned reads.",
 )
+@click.option(
+    "--expand_dims",
+    is_flag=True,
+    help="Prepend a size-1 channel dimension to the output array, converting (z,y,x) → (1,z,y,x).",
+)
 
 #def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
 def cli(config, **kwargs):
@@ -294,13 +299,13 @@ def cli(config, **kwargs):
         configs = validate_config(config, **kwargs)
     else:
         configs = {k: v for k, v in kwargs.items() if v not in (None, (), [], {})}
-    
+
     # create a dask client to submit tasks
     client = initialize_dask_client(configs['cluster'],
                                     configs.get('log_dir', None),
                                     configs.get('extra_directives', None))
-    
-    # convert src dataset(n5, tiff, mrc) to zarr ome dataset 
+
+    # convert src dataset(n5, tiff, mrc) to zarr ome dataset
     logger.info(configs)
     to_zarr(src=configs['src'],
             dest=configs['dest'],
@@ -313,6 +318,7 @@ def cli(config, **kwargs):
             translation=configs['translation'],
             units=configs['units'],
             optimize_reads=configs['optimize_reads'],
+            expand_dims=configs.get('expand_dims', False),
             multiscale=configs['multiscale'],
             ms_workers=configs['ms_workers'],
             data_origin=configs['data_origin'],
@@ -322,6 +328,6 @@ def cli(config, **kwargs):
             codec=configs.get('codec', 'zstd'),
             codec_level=configs.get('codec_level'),
     )
-    
+
 if __name__ == "__main__":
     cli()
