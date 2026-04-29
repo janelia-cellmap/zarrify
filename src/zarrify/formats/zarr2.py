@@ -73,6 +73,41 @@ class Zarr2Group(Volume):
             for k, v in attrs.items():
                 dst_arr.attrs[k] = v
 
+    def _update_multiscales_expand_dims(self, dest: str) -> None:
+        """Prepend a channel axis to any OME multiscales metadata in the output store.
+
+        Called after group/array attrs have been copied from the zarr2 source,
+        when expand_dims=True has added a leading size-1 dimension to every array.
+        """
+        dst_store = zarr.storage.LocalStore(dest)
+        dst_root = zarr.open_group(store=dst_store, mode='a')
+        self._patch_group_multiscales(dst_root)
+
+    def _patch_group_multiscales(self, group: zarr.Group) -> None:
+        for key in group.keys():
+            node = group[key]
+            if isinstance(node, zarr.Group):
+                self._patch_group_multiscales(node)
+
+        if 'multiscales' not in group.attrs:
+            return
+        ms = list(group.attrs['multiscales'])
+        for m in ms:
+            if 'axes' in m:
+                m['axes'] = [{'name': 'c', 'type': 'channel'}] + list(m['axes'])
+            for ct in m.get('coordinateTransformations', []):
+                if ct['type'] == 'scale':
+                    ct['scale'] = [1.0] + list(ct['scale'])
+                elif ct['type'] == 'translation':
+                    ct['translation'] = [0.0] + list(ct['translation'])
+            for ds in m.get('datasets', []):
+                for ct in ds.get('coordinateTransformations', []):
+                    if ct['type'] == 'scale':
+                        ct['scale'] = [1.0] + list(ct['scale'])
+                    elif ct['type'] == 'translation':
+                        ct['translation'] = [0.0] + list(ct['translation'])
+        group.attrs['multiscales'] = ms
+
     def write_to_zarr(
         self,
         dest: str,
@@ -80,6 +115,7 @@ class Zarr2Group(Volume):
         chunk_shape: list[int],
         shard_shape: list[int] | None = None,
         codec: dict = zstd_codec(level=6),
+        expand_dims: bool = False,
     ) -> None:
         logging.basicConfig(
             level=logging.INFO,
@@ -101,11 +137,13 @@ class Zarr2Group(Volume):
 
             shape = tuple(zarray_meta['shape'])
             dtype = np.dtype(zarray_meta['dtype'])
+            out_shape = (1, *shape) if expand_dims else shape
 
-            arr_chunk_shape = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
+            arr_chunk_shape_base = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
+            arr_chunk_shape = ([1] + arr_chunk_shape_base) if expand_dims else arr_chunk_shape_base
             arr_shard_shape = (
                 align_shard_to_chunks(
-                    [min(s, dim) for s, dim in zip(list(shard_shape)[-len(shape):], shape)],
+                    [min(s, dim) for s, dim in zip(list(shard_shape)[-len(out_shape):], out_shape)],
                     arr_chunk_shape,
                 )
                 if shard_shape is not None else None
@@ -117,7 +155,7 @@ class Zarr2Group(Volume):
             dst_spec = zarr3_spec(
                 store_path=dest,
                 array_path=rel_path,
-                shape=shape,
+                shape=out_shape,
                 dtype=dtype,
                 chunk_shape=arr_chunk_shape,
                 shard_shape=arr_shard_shape,
@@ -128,8 +166,8 @@ class Zarr2Group(Volume):
             dest_arr = open_ts(dst_spec)
             dest_chunks = dest_arr.chunk_layout.write_chunk.shape
 
-            logger.info(f"{rel_path}: shape={shape}, dtype={dtype}, chunk={arr_chunk_shape}, shard={arr_shard_shape}")
-            out_slices = slices_from_chunks(normalize_chunks(dest_chunks, shape=shape))
+            logger.info(f"{rel_path}: shape={out_shape}, dtype={dtype}, chunk={arr_chunk_shape}, shard={arr_shard_shape}")
+            out_slices = slices_from_chunks(normalize_chunks(dest_chunks, shape=out_shape))
             out_slices_partitioned = tuple(partition_all(100000, out_slices))
             logger.info(f"{rel_path}: {len(out_slices)} total slices, {len(out_slices_partitioned)} batch(es)")
 
@@ -137,7 +175,7 @@ class Zarr2Group(Volume):
                 logger.info(f"{rel_path}: {idx + 1} / {len(out_slices_partitioned)}")
                 start = time.time()
                 fut = client.map(
-                    lambda v: save_chunk(src_spec, dst_spec, v), part
+                    lambda v: save_chunk(src_spec, dst_spec, v, expand_dims), part
                 )
                 logger.info(f"Submitted {len(part)} tasks in {time.time() - start:.2f}s")
                 wait(fut)
@@ -145,16 +183,20 @@ class Zarr2Group(Volume):
                 logger.info(f"Completed {len(part)} tasks in {time.time() - start:.2f}s")
 
         self._copy_array_attrs(dest, array_paths)
+        if expand_dims:
+            self._update_multiscales_expand_dims(dest)
 
 
 def save_chunk(
     src_spec: dict,
     dst_spec: dict,
     chunk_slice: Tuple[slice, ...],
+    expand_dims: bool = False,
 ) -> None:
     src = open_ts(src_spec)
-    data = src[chunk_slice].read().result()
+    src_slice = chunk_slice[1:] if expand_dims else chunk_slice
+    data = src[src_slice].read().result()
     if (data == 0).all():
         return
     dest = open_ts(dst_spec)
-    dest[chunk_slice].write(data).result()
+    dest[chunk_slice].write(data[np.newaxis] if expand_dims else data).result()
