@@ -165,4 +165,4 @@ def test_zarr2_to_zarr3(tmp_path):
     assert np.array_equal(dest_data, data)
 
     dst_root = zarr.open_group(zarr.storage.LocalStore(str(dest_path)), mode='r')
-    assert 'multiscales' in dst_root.attrs
+    assert 'ome' in dst_root.attrs

@@ -42,7 +42,7 @@ class Volume:
         return list(islice(cycle(param_arr), len(ref_arr)))
 
     def add_ome_metadata(self, dest: str, full_scale_group_name: str = 's0') -> None:
-        """Write OME-NGFF v0.4 multiscales metadata to the zarr store root.
+        """Write OME-NGFF v0.5 multiscales metadata to the zarr store root.
 
         Parameters
         ----------
@@ -65,33 +65,25 @@ class Volume:
                 return {"name": axis, "type": "channel"}
 
         root = zarr.open(zarr.storage.LocalStore(dest), mode='a')
-        # json template for a multiscale structure
-        z_attrs: dict = {"multiscales": [{}]}
-        z_attrs["multiscales"][0]["axes"] = [
-            get_axis(axis, unit)
-            for axis, unit in zip(list(self.metadata["axes"]), self.metadata["units"])
-        ]
-        z_attrs["multiscales"][0]["coordinateTransformations"] = [
-            {"scale": [1.0]*len(self.metadata['axes']), "type": "scale"}
-        ]
-        z_attrs["multiscales"][0]["datasets"] = [
-            {
-                "coordinateTransformations": [
-                    {"scale": self.metadata["scale"], "type": "scale"},
-                    {
-                        "translation": self.metadata["translation"],
-                        "type": "translation",
-                    },
+        root.attrs["ome"] = {
+            "version": "0.5",
+            "multiscales": [{
+                "axes": [
+                    get_axis(axis, unit)
+                    for axis, unit in zip(list(self.metadata["axes"]), self.metadata["units"])
                 ],
-                "path": full_scale_group_name,
-            }
-        ]
-
-        z_attrs["multiscales"][0]["name"] = "/" if root.path == "" else root.path
-        z_attrs["multiscales"][0]["version"] = "0.4"
-
-        # add multiscale template to .attrs
-        root.attrs["multiscales"] = z_attrs["multiscales"]
+                "coordinateTransformations": [
+                    {"scale": [1.0] * len(self.metadata['axes']), "type": "scale"}
+                ],
+                "datasets": [{
+                    "coordinateTransformations": [
+                        {"scale": self.metadata["scale"], "type": "scale"},
+                        {"translation": self.metadata["translation"], "type": "translation"},
+                    ],
+                    "path": full_scale_group_name,
+                }],
+            }],
+        }
         
         
 
@@ -196,12 +188,13 @@ class Volume:
         """
         # store original array in a new .zarr file as an arr_name scale
         z_attrs = z_root.attrs.asdict()
-        scn_level_up = z_attrs['multiscales'][0]['datasets'][0]['coordinateTransformations'][0]['scale']
-        trn_level_up = z_attrs['multiscales'][0]['datasets'][0]['coordinateTransformations'][1]['translation']
+        ms = z_attrs['ome']['multiscales'][0]
+        scn_level_up = ms['datasets'][0]['coordinateTransformations'][0]['scale']
+        trn_level_up = ms['datasets'][0]['coordinateTransformations'][1]['translation']
 
         level = 1
         source_shape = z_root[f's{level-1}'].shape
-        axes_order = [axis['name'].lower() for axis in z_attrs['multiscales'][0]['axes']]
+        axes_order = [axis['name'].lower() for axis in ms['axes']]
         spatial_shape = list(source_shape[i] for i, axis in enumerate(axes_order) if axis not in ['c', 't'])
 
         # resolve chunk_shape: fall back to s0 chunk shape when not specified
@@ -259,7 +252,7 @@ class Volume:
                 in zip(scn_level_up, trn_level_up, scaling_factors)]
 
             # Convert datasets list to dict for easier lookup/replacement
-            datasets = z_attrs['multiscales'][0]['datasets']
+            datasets = ms['datasets']
             datasets_dict = {d['path']: d for d in datasets}
 
             # Update or add
@@ -271,7 +264,7 @@ class Volume:
                 'path': f's{level}'
             }
             # Convert back to list (maintaining order)
-            z_attrs['multiscales'][0]['datasets'] = list(datasets_dict.values())
+            ms['datasets'] = list(datasets_dict.values())
 
             #prepare data for downsampling next level
             level += 1
@@ -280,7 +273,8 @@ class Volume:
             spatial_shape = list(dest_shape[i] for i, axis in enumerate(axes_order) if axis not in ['c', 't'])
 
         #write multiscale metadata into .zattrs
-        z_root.attrs['multiscales'] = z_attrs['multiscales']
+        z_attrs['ome']['multiscales'] = [ms]
+        z_root.attrs['ome'] = z_attrs['ome']
 
 
 def upscale_slice(slc: slice, factor: int):
