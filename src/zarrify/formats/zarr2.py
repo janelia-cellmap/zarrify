@@ -38,7 +38,10 @@ class Zarr2Group(Volume):
         return array_paths
 
     def _copy_group_attrs(self, dst_root: zarr.Group) -> None:
-        """Copy zarr v2 group-level .zattrs to the output zarr3 groups."""
+        """Copy zarr v2 group-level .zattrs to the output zarr3 groups.
+
+        OME-NGFF 0.4 multiscales are upgraded to the 0.5 'ome' wrapper.
+        """
         for dirpath, _, filenames in os.walk(self.src_path):
             if '.zarray' in filenames:
                 continue
@@ -55,7 +58,16 @@ class Zarr2Group(Volume):
             rel = os.path.relpath(dirpath, self.src_path)
             target = dst_root if rel == '.' else dst_root.require_group(rel)
             for k, v in attrs.items():
-                target.attrs[k] = v
+                if k == 'multiscales':
+                    target.attrs['ome'] = {
+                        'version': '0.5',
+                        'multiscales': [
+                            {mk: mv for mk, mv in m.items() if mk not in ('version', 'name')}
+                            for m in v
+                        ],
+                    }
+                else:
+                    target.attrs[k] = v
 
     def _copy_array_attrs(self, dest: str, array_paths: list[str]) -> None:
         """Copy zarr v2 array .zattrs to the output zarr3 arrays."""
