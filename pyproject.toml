@@ -48,7 +48,8 @@ zarr-multiscale = "zarrify.multiscale.to_multiscale:cli"
 
 [project.optional-dependencies]
 test = [
-    "pytest"
+    "pytest",
+    "ome-zarr-models",
 ]
 
 [tool.pixi.workspace]
