@@ -178,7 +178,7 @@ class N5Group(Volume):
                 z_arr.attrs[k] = v
 
     def apply_ome_template(self, zgroup: zarr.Group) -> dict:
-        """Build an OME-NGFF v0.4 multiscales attribute dict from N5 group attributes.
+        """Build an OME-NGFF v0.5 ome attribute dict from N5 group attributes.
 
         Parameters
         ----------
@@ -188,31 +188,28 @@ class N5Group(Volume):
         Returns
         -------
         dict
-            A dict suitable for writing to zgroup.attrs["multiscales"].
+            A dict suitable for writing to zgroup.attrs["ome"].
         """
-        z_attrs: dict = {"multiscales": [{}]}
-
-        # normalize input units, i.e. 'meter' or 'm'-> 'meter'
         ureg = pint.UnitRegistry()
         units_list = [str(ureg.Unit(unit)) for unit in zgroup.attrs['units']]
-
-        #populate .zattrs
-        z_attrs['multiscales'][0]['axes'] = [{"name": axis,
-                                            "type": "space",
-                                            "unit": unit} for (axis, unit) in zip(zgroup.attrs['axes'],
-                                                                                    units_list)]
-        z_attrs['multiscales'][0]['version'] = '0.4'
-        z_attrs['multiscales'][0]['name'] = zgroup.name
         ndim = len(zgroup.attrs['axes'])
-        z_attrs['multiscales'][0]['coordinateTransformations'] = [
-            {"type": "scale", "scale": [1.0] * ndim},
-            {"type": "translation", "translation": [0.0] * ndim},
-        ]
 
-        return z_attrs
+        return {
+            "ome": {
+                "version": "0.5",
+                "multiscales": [{
+                    "axes": [{"name": axis, "type": "space", "unit": unit}
+                             for axis, unit in zip(zgroup.attrs['axes'], units_list)],
+                    "coordinateTransformations": [
+                        {"type": "scale", "scale": [1.0] * ndim},
+                        {"type": "translation", "translation": [0.0] * ndim},
+                    ],
+                }],
+            }
+        }
 
     def normalize_to_omengff(self, zgroup: zarr.Group) -> None:
-        """Recursively convert N5 metadata to OME-NGFF multiscales attributes.
+        """Recursively convert N5 metadata to OME-NGFF v0.5 attributes.
 
         Parameters
         ----------
@@ -231,10 +228,8 @@ class N5Group(Volume):
                     for arr in self._iter_arrays(zgroup[key]):
                         unsorted_datasets.append(self.ome_dataset_metadata(arr[1], zgroup[key]))
 
-                    #1.apply natural sort to organize datasets metadata array for different resolution degrees (s0 -> s10)
-                    #2.add datasets metadata to the omengff template
-                    zattrs['multiscales'][0]['datasets'] = natsort.natsorted(unsorted_datasets, key=itemgetter(*['path']))
-                    zgroup[key].attrs['multiscales'] = zattrs['multiscales']
+                    zattrs['ome']['multiscales'][0]['datasets'] = natsort.natsorted(unsorted_datasets, key=itemgetter(*['path']))
+                    zgroup[key].attrs['ome'] = zattrs['ome']
 
     @staticmethod
     def _iter_arrays(group: zarr.Group):
