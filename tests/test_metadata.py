@@ -5,6 +5,7 @@ zarr3 output → OME-NGFF 0.5 (under the "ome" key)
 import json
 
 import numpy as np
+import ome_zarr_models.v05
 import pytest
 import tensorstore as ts
 import tifffile
@@ -133,6 +134,23 @@ def test_tiff_to_zarr3_dimension_names_match_axes(tmp_path, dask_client):
     assert list(s0.metadata.dimension_names) == axes
     ms_axes = [a["name"] for a in root.attrs["ome"]["multiscales"][0]["axes"]]
     assert list(s0.metadata.dimension_names) == ms_axes
+
+
+def test_tiff_to_zarr3_validates_against_ome_zarr_models(tmp_path, dask_client):
+    """Output store parses cleanly as an OME-NGFF 0.5 Image via ome-zarr-models."""
+    data = np.random.randint(0, 255, (10, 32, 32), dtype=np.uint8)
+    src = tmp_path / "img.tif"
+    tifffile.imwrite(src, data)
+    dest = tmp_path / "img.zarr"
+
+    to_zarr(str(src), str(dest), dask_client,
+            axes=["z", "y", "x"], scale=[1.0, 1.0, 1.0],
+            translation=[0.0, 0.0, 0.0], units=["nanometer", "nanometer", "nanometer"],
+            zarr_chunks=[10, 32, 32])
+
+    group = zarr.open(zarr.storage.LocalStore(str(dest)), mode="r")
+    image = ome_zarr_models.v05.Image.from_zarr(group)
+    assert [a.name for a in image.ome_attributes.multiscales[0].axes] == ["z", "y", "x"]
 
 
 def test_zarr2_to_zarr3_upgrades_to_05(tmp_path, dask_client):
