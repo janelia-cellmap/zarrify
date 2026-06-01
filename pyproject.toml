@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "zarrify"
-version = "0.1.2"
+version = "0.1.3"
 description = "Convert scientific image formats (TIFF, MRC, N5) to OME-Zarr"
 authors = [
     { name = "Yurii Zubov", email = "zubov452@gmail.com" }
