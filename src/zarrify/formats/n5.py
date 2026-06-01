@@ -309,6 +309,15 @@ class N5Group(Volume):
         # input n5 arrays list to convert
         n5_array_paths = self._find_n5_arrays(n5_root_path)
 
+        # Validate every source array's rank against config metadata before any
+        # data is written. Multiscale datasets must have homogeneous rank, so a
+        # mismatch on any array is a fatal config error and should be caught up
+        # front rather than partway through the conversion.
+        for rel_path in n5_array_paths:
+            store_rel_path = os.path.join(self.path, rel_path) if self.path else rel_path
+            src_arr = open_ts(n5_spec(self.store_path, store_rel_path))
+            self._validate_metadata_rank(len(src_arr.shape))
+
         # copy input n5 tree structure to output zarr and add ome-metadata, when N5 metadata is present
         z_store = zarr.storage.LocalStore(dest)
         z_root = zarr.open_group(store=z_store, mode='a')
@@ -321,7 +330,6 @@ class N5Group(Volume):
             shape = src_arr.shape
             dtype = np.dtype(src_arr.dtype.numpy_dtype)
 
-            # trim chunk/shard shapes to array ndim; N5 trees can hold mixed-dimensionality arrays
             arr_chunk_shape = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
             arr_shard_shape = (
                 align_shard_to_chunks(
@@ -333,19 +341,7 @@ class N5Group(Volume):
             if arr_shard_shape is not None:
                 check_shardslab_fits_in_ram(arr_shard_shape, dtype, arr_chunk_shape, client)
 
-            # Read axes from the array's parent group attributes.json so the output
-            # array's dimension_names matches the OME multiscales axes.
-            parent_dir = os.path.dirname(os.path.join(self.store_path, rel_path))
-            parent_attrs_path = os.path.join(parent_dir, 'attributes.json')
-            dim_names = None
-            if os.path.exists(parent_attrs_path):
-                try:
-                    with open(parent_attrs_path) as f:
-                        parent_attrs = json.load(f)
-                    if 'axes' in parent_attrs and len(parent_attrs['axes']) == len(shape):
-                        dim_names = list(parent_attrs['axes'])
-                except (json.JSONDecodeError, OSError):
-                    pass
+            dim_names = list(self.metadata["axes"])
 
             dst_spec = zarr3_spec(
                 store_path=dest,
