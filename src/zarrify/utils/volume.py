@@ -224,6 +224,7 @@ class Volume:
                 chunk_shape=resolved_chunk_shape,
                 shard_shape=shard_shape,
                 codec=codec,
+                dimension_names=[a['name'] for a in ms['axes']],
                 create=True,
             )
             dest_arr = open_ts(dst_spec)
