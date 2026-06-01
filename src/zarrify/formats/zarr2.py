@@ -125,6 +125,24 @@ class Zarr2Group(Volume):
             if arr_shard_shape is not None:
                 check_shardslab_fits_in_ram(arr_shard_shape, dtype, arr_chunk_shape, client)
 
+            # Read axes from the parent group's .zattrs multiscales so the output
+            # array's dimension_names matches the OME multiscales axes.
+            parent_dir = os.path.dirname(os.path.join(self.src_path, rel_path))
+            parent_zattrs = os.path.join(parent_dir, '.zattrs')
+            dim_names = None
+            if os.path.exists(parent_zattrs):
+                try:
+                    with open(parent_zattrs) as f:
+                        parent_attrs = json.load(f)
+                    ms = parent_attrs.get('multiscales') or []
+                    if ms and 'axes' in ms[0]:
+                        axes_meta = ms[0]['axes']
+                        names = [a['name'] if isinstance(a, dict) else a for a in axes_meta]
+                        if len(names) == len(shape):
+                            dim_names = names
+                except (json.JSONDecodeError, OSError):
+                    pass
+
             src_spec = zarr2_spec(self.src_path, rel_path)
             dst_spec = zarr3_spec(
                 store_path=dest,
@@ -134,6 +152,7 @@ class Zarr2Group(Volume):
                 chunk_shape=arr_chunk_shape,
                 shard_shape=arr_shard_shape,
                 codec=codec,
+                dimension_names=dim_names,
                 create=True,
             )
 
