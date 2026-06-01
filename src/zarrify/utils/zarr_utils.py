@@ -12,6 +12,7 @@ def create_output_array(
     codec: dict = zstd_codec(level=6),
     checksum: bool = True,
     array_path: str = "s0",
+    dimension_names: list[str] | None = None,
 ) -> object:
     """Create and open a zarr3 output array via TensorStore.
 
@@ -50,6 +51,7 @@ def create_output_array(
         shard_shape=shard_shape,
         codec=codec,
         checksum=checksum,
+        dimension_names=dimension_names,
         create=True,
     )
     return open_ts(spec)

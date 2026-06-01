@@ -133,6 +133,7 @@ def zarr3_spec(
     shard_shape: list[int] | None = None,
     codec: dict | None = None,
     checksum: bool = True,
+    dimension_names: list[str] | None = None,
     *,
     create: bool = False,
 ) -> dict:
@@ -206,6 +207,8 @@ def zarr3_spec(
             "codecs": _build_codecs(resolved_codec, chunk_shape if shard_shape is not None else None, checksum),
             "fill_value": 0,
         }
+        if dimension_names is not None:
+            spec["metadata"]["dimension_names"] = list(dimension_names)
 
     return spec
 
