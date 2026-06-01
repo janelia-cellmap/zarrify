@@ -41,9 +41,10 @@ class Mrc3D(Volume):
         super().__init__(src_path, axes, scale, translation, units)
 
         self.memmap = mrcfile.mmap(self.src_path, mode="r")
-        self.ndim = self.memmap.data.ndim
-        self.shape = np.squeeze(self.memmap.data.shape)
+        self.shape = tuple(np.squeeze(self.memmap.data.shape).tolist())
+        self.ndim = len(self.shape)
         self.dtype = self.memmap.data.dtype
+        self._validate_metadata_rank(self.ndim)
 
     def write_to_zarr(self, dst_spec: dict, client: Client) -> None:
         """Read the MRC file in chunks and write each chunk to a zarr3 array via TensorStore.

@@ -101,6 +101,12 @@ class Zarr2Group(Volume):
         array_paths = self._find_arrays()
         logger.info(f"Found {len(array_paths)} zarr v2 arrays: {array_paths}")
 
+        # Validate every source array's rank against config metadata before any
+        # data is written. Multiscale datasets must have homogeneous rank.
+        for rel_path in array_paths:
+            with open(os.path.join(self.src_path, rel_path, '.zarray')) as f:
+                self._validate_metadata_rank(len(json.load(f)['shape']))
+
         dst_store = zarr.storage.LocalStore(dest)
         dst_root = zarr.open_group(store=dst_store, mode='a')
         self._copy_group_attrs(dst_root)
@@ -125,6 +131,8 @@ class Zarr2Group(Volume):
             if arr_shard_shape is not None:
                 check_shardslab_fits_in_ram(arr_shard_shape, dtype, arr_chunk_shape, client)
 
+            dim_names = list(self.metadata["axes"])
+
             src_spec = zarr2_spec(self.src_path, rel_path)
             dst_spec = zarr3_spec(
                 store_path=dest,
@@ -134,6 +142,7 @@ class Zarr2Group(Volume):
                 chunk_shape=arr_chunk_shape,
                 shard_shape=arr_shard_shape,
                 codec=codec,
+                dimension_names=dim_names,
                 create=True,
             )
 

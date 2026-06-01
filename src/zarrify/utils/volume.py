@@ -41,6 +41,25 @@ class Volume:
         from itertools import cycle, islice
         return list(islice(cycle(param_arr), len(ref_arr)))
 
+    def _validate_metadata_rank(self, ndim: int) -> None:
+        """Raise if axes/units/scale/translation lengths don't match *ndim*.
+
+        Called by format subclasses once the source's dimensionality is known.
+        Multiscale datasets must have a single rank, so a single config applies
+        to every array in the store.
+        """
+        mismatches = {
+            key: len(self.metadata[key])
+            for key in ("axes", "units", "scale", "translation")
+            if len(self.metadata[key]) != ndim
+        }
+        if mismatches:
+            raise ValueError(
+                f"Source has {ndim} dimensions but config metadata has "
+                f"mismatched lengths: {mismatches}. "
+                f"Pass {ndim}-element axes/units/scale/translation."
+            )
+
     def add_ome_metadata(self, dest: str, full_scale_group_name: str = 's0') -> None:
         """Write OME-NGFF v0.5 multiscales metadata to the zarr store root.
 
@@ -224,6 +243,7 @@ class Volume:
                 chunk_shape=resolved_chunk_shape,
                 shard_shape=shard_shape,
                 codec=codec,
+                dimension_names=[a['name'] for a in ms['axes']],
                 create=True,
             )
             dest_arr = open_ts(dst_spec)

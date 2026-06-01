@@ -133,6 +133,7 @@ def zarr3_spec(
     shard_shape: list[int] | None = None,
     codec: dict | None = None,
     checksum: bool = True,
+    dimension_names: list[str] | None = None,
     *,
     create: bool = False,
 ) -> dict:
@@ -191,6 +192,15 @@ def zarr3_spec(
     if create:
         if shape is None or dtype is None or chunk_shape is None:
             raise ValueError("shape, dtype, and chunk_shape are required when create=True")
+        if dimension_names is None:
+            raise ValueError(
+                "dimension_names is required when create=True (OME-NGFF 0.5 spec)"
+            )
+        if len(dimension_names) != len(shape):
+            raise ValueError(
+                f"dimension_names length ({len(dimension_names)}) must match "
+                f"shape length ({len(shape)})"
+            )
 
         outer_shape = shard_shape if shard_shape is not None else chunk_shape
         resolved_codec = codec if codec is not None else zstd_codec()
@@ -205,6 +215,7 @@ def zarr3_spec(
             "data_type": np.dtype(dtype).name,
             "codecs": _build_codecs(resolved_codec, chunk_shape if shard_shape is not None else None, checksum),
             "fill_value": 0,
+            "dimension_names": list(dimension_names),
         }
 
     return spec

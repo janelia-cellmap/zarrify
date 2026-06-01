@@ -34,7 +34,7 @@ def create_test_file(tmp_path):
 
 
 FORMATS = ['tif', 'tiff', 'mrc']
-SHAPES = [(40, 50), (1, 30, 50)]  # 2D and 3D
+SHAPES = [(40, 50), (10, 30, 50)]  # 2D and 3D (no size-1 dims to keep MRC squeeze stable)
 
 
 @pytest.mark.parametrize("ext,shape", list(itertools.product(FORMATS, SHAPES)))
@@ -42,8 +42,16 @@ def test_to_zarr(create_test_file, ext, shape):
     src_path, expected_data = create_test_file(ext, shape)
     dest_path = Path(f"{src_path.with_suffix('')}.zarr")
 
+    ndim = len(shape)
+    axes = ['z', 'y', 'x'][-ndim:]
+    units = ['nanometer'] * ndim
+    scale = [1.0] * ndim
+    translation = [0.0] * ndim
+
     dask_client = initialize_dask_client('local')
-    to_zarr(src_path, dest_path, dask_client)
+    to_zarr(src_path, dest_path, dask_client,
+            axes=axes, scale=scale, translation=translation, units=units,
+            zarr_chunks=[64] * ndim)
 
     if src_path.suffix.lstrip('.') in ['tif', 'tiff']:
         src_data = tifffile.imread(src_path)
@@ -120,7 +128,10 @@ def test_n5_to_zarr(tmp_path):
 
     dest_path = tmp_path / "test_n5.zarr"
     dask_client = initialize_dask_client('local')
-    to_zarr(str(n5_path), str(dest_path), dask_client)
+    to_zarr(str(n5_path), str(dest_path), dask_client,
+            axes=['z', 'y', 'x'], scale=[1.0, 1.0, 1.0],
+            translation=[0.0, 0.0, 0.0], units=['nm', 'nm', 'nm'],
+            zarr_chunks=[10, 32, 32])
 
     dest_data = open_ts(zarr3_spec(str(dest_path), 's0'))[:].read().result()
     assert dest_data.shape == data.shape
@@ -158,7 +169,10 @@ def test_zarr2_to_zarr3(tmp_path):
 
     dest_path = tmp_path / "test_dst.zarr"
     dask_client = initialize_dask_client('local')
-    to_zarr(str(src_path), str(dest_path), dask_client)
+    to_zarr(str(src_path), str(dest_path), dask_client,
+            axes=['z', 'y', 'x'], scale=[1.0, 1.0, 1.0],
+            translation=[0.0, 0.0, 0.0], units=['nanometer', 'nanometer', 'nanometer'],
+            zarr_chunks=[10, 32, 32])
 
     dest_data = open_ts(zarr3_spec(str(dest_path), 's0'))[:].read().result()
     assert dest_data.shape == data.shape

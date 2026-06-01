@@ -156,7 +156,8 @@ def to_zarr(src : str,
         # Create output zarr3 array via TensorStore
         full_scale_arr_name = 's0'
         create_output_array(dest, dataset.shape, dataset.dtype, zarr_chunks,
-                            shard_shape=shard_shape, codec=codec_dict, array_path=full_scale_arr_name)
+                            shard_shape=shard_shape, codec=codec_dict, array_path=full_scale_arr_name,
+                            dimension_names=list(dataset.metadata["axes"]))
         dest_spec = zarr3_spec(store_path=dest, array_path=full_scale_arr_name)
         logger.info(f"Created output Zarr array at {dest}/{full_scale_arr_name}")
 
