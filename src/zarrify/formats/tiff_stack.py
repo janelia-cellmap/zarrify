@@ -44,6 +44,7 @@ class TiffStack(Volume):
         self.dtype = probe.dtype
         self.shape = tuple(np.squeeze([len(self.stack_list)] + list(probe.shape)))
         self.ndim = len(self.shape)
+        self._validate_metadata_rank(self.ndim)
 
     def write_to_zarr(self, dst_spec: dict, client: Client) -> None:
         """Assemble tiles into slabs and write each slab to a zarr3 array via TensorStore.

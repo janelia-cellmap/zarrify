@@ -63,11 +63,7 @@ class Tiff(Volume):
         self._tiff_chunks = tuple(_meta['chunks'])
         self.optimize_reads = optimize_reads
 
-        # Trim metadata to match actual data dimensionality.
-        self.metadata["axes"] = list(self.metadata["axes"])[-self.ndim:]
-        self.metadata["scale"] = self.metadata["scale"][-self.ndim:]
-        self.metadata["translation"] = self.metadata["translation"][-self.ndim:]
-        self.metadata["units"] = self.metadata["units"][-self.ndim:]
+        self._validate_metadata_rank(self.ndim)
 
     def write_to_zarr(self, dst_spec: dict, client: Client) -> None:
         """Read the TIFF file in slabs and write each slab to a zarr3 array via TensorStore.
