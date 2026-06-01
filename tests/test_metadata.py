@@ -102,7 +102,10 @@ def test_n5_to_zarr3_ome_metadata_version(tmp_path, dask_client):
     s0_attrs_path.write_text(json.dumps(s0_attrs))
 
     dest = tmp_path / "test_n5.zarr"
-    to_zarr(str(n5_path), str(dest), dask_client)
+    to_zarr(str(n5_path), str(dest), dask_client,
+            axes=["z", "y", "x"], scale=[1.0, 1.0, 1.0],
+            translation=[0.0, 0.0, 0.0], units=["nm", "nm", "nm"],
+            zarr_chunks=[10, 32, 32])
 
     root = zarr.open_group(zarr.storage.LocalStore(str(dest)), mode="r")
     assert "ome" in root.attrs, "expected 'ome' key on N5 conversion output root"
@@ -162,7 +165,10 @@ def test_zarr2_to_zarr3_upgrades_to_05(tmp_path, dask_client):
     (src / ".zattrs").write_text(json.dumps({"multiscales": multiscales}))
 
     dest = tmp_path / "dst.zarr"
-    to_zarr(str(src), str(dest), dask_client)
+    to_zarr(str(src), str(dest), dask_client,
+            axes=["z", "y", "x"], scale=[1.0, 1.0, 1.0],
+            translation=[0.0, 0.0, 0.0], units=["nanometer", "nanometer", "nanometer"],
+            zarr_chunks=[10, 32, 32])
 
     root = zarr.open_group(zarr.storage.LocalStore(str(dest)), mode="r")
     assert "ome" in root.attrs, "zarr3 output should have 'ome' 0.5 key"
