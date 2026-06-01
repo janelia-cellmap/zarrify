@@ -333,6 +333,20 @@ class N5Group(Volume):
             if arr_shard_shape is not None:
                 check_shardslab_fits_in_ram(arr_shard_shape, dtype, arr_chunk_shape, client)
 
+            # Read axes from the array's parent group attributes.json so the output
+            # array's dimension_names matches the OME multiscales axes.
+            parent_dir = os.path.dirname(os.path.join(self.store_path, rel_path))
+            parent_attrs_path = os.path.join(parent_dir, 'attributes.json')
+            dim_names = None
+            if os.path.exists(parent_attrs_path):
+                try:
+                    with open(parent_attrs_path) as f:
+                        parent_attrs = json.load(f)
+                    if 'axes' in parent_attrs and len(parent_attrs['axes']) == len(shape):
+                        dim_names = list(parent_attrs['axes'])
+                except (json.JSONDecodeError, OSError):
+                    pass
+
             dst_spec = zarr3_spec(
                 store_path=dest,
                 array_path=rel_path,
@@ -341,6 +355,7 @@ class N5Group(Volume):
                 chunk_shape=arr_chunk_shape,
                 shard_shape=arr_shard_shape,
                 codec=codec,
+                dimension_names=dim_names,
                 create=True,
             )
 
