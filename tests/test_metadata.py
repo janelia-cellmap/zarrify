@@ -112,6 +112,26 @@ def test_n5_to_zarr3_ome_metadata_version(tmp_path, dask_client):
     assert any(d["path"] == "s0" for d in ms["datasets"])
 
 
+def test_tiff_to_zarr3_dimension_names_match_axes(tmp_path, dask_client):
+    """zarr3 array metadata has dimension_names matching multiscales axes."""
+    data = np.random.randint(0, 255, (10, 32, 32), dtype=np.uint8)
+    src = tmp_path / "img.tif"
+    tifffile.imwrite(src, data)
+    dest = tmp_path / "img.zarr"
+
+    axes = ["z", "y", "x"]
+    to_zarr(str(src), str(dest), dask_client,
+            axes=axes, scale=[1.0, 1.0, 1.0],
+            translation=[0.0, 0.0, 0.0], units=["nanometer", "nanometer", "nanometer"],
+            zarr_chunks=[10, 32, 32])
+
+    root = zarr.open_group(zarr.storage.LocalStore(str(dest)), mode="r")
+    s0 = root["s0"]
+    assert list(s0.metadata.dimension_names) == axes
+    ms_axes = [a["name"] for a in root.attrs["ome"]["multiscales"][0]["axes"]]
+    assert list(s0.metadata.dimension_names) == ms_axes
+
+
 def test_zarr2_to_zarr3_upgrades_to_05(tmp_path, dask_client):
     """Converting a zarr2 source with 0.4 metadata produces zarr3 with 0.5."""
     shape = (10, 32, 32)
