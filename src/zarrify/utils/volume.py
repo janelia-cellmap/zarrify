@@ -342,6 +342,10 @@ def downsample_save_chunk_mode(
     # only downsample source_data if it is not all 0s
     if not (source_data == 0).all():
         if data_origin == 'labels':
+            # TODO: In a 2x2x2 window with a 4:4 tie between 0 and a label,
+            # windowed_mode (COUNTLESS) picks by voxel position: 0 wins in 35 of
+            # 70 layouts, so thin objects can disappear at coarse levels.
+            # Option: on a tie, prefer the non-zero label.
             ds_data = windowed_mode(source_data, window_size=tuple(downsampling_factors))
         elif data_origin == 'raw':
             if antialiasing:
