@@ -87,6 +87,8 @@ def to_zarr(src : str,
             custom_scale_factors : str = None,
             codec : str = 'zstd',
             codec_level : int | None = None,
+            blosc_cname : str | None = None,
+            shuffle : str | None = None,
             ):
     """Convert Tiff stack, 3D Tiff, N5, or MRC file to OME-Zarr.
 
@@ -103,13 +105,17 @@ def to_zarr(src : str,
         shard_shape (list[int] | None, optional): outer shard shape for sharded zarr3 arrays.
         codec (str, optional): compression codec name ('zstd', 'gzip', 'blosc'). Defaults to 'zstd'.
         codec_level (int | None, optional): codec compression level. None uses per-codec default.
+        blosc_cname (str | None, optional): Blosc-only internal compressor ('lz4', 'lz4hc', 'blosclz',
+            'zstd', 'snappy', 'zlib'). Ignored unless codec='blosc'.
+        shuffle (str | None, optional): Blosc-only byte-shuffle filter ('noshuffle', 'shuffle',
+            'bitshuffle'). Ignored unless codec='blosc'.
     """
     logger.info(f"Initializing dataset from {src}")
     dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
     logger.info(f"Dataset type: {type(dataset).__name__}")
 
     # Handle N5Group separately as it has custom zarr creation logic
-    codec_dict = build_codec(codec, codec_level)
+    codec_dict = build_codec(codec, codec_level, cname=blosc_cname, shuffle=shuffle)
 
     if isinstance(dataset, N5Group):
         logger.info("Detected N5Group — scaling workers and starting write")
@@ -304,6 +310,8 @@ def cli(config, **kwargs):
             custom_scale_factors=configs['custom_scale_factors'],
             codec=configs.get('codec', 'zstd'),
             codec_level=configs.get('codec_level'),
+            blosc_cname=configs.get('blosc_cname'),
+            shuffle=configs.get('shuffle'),
     )
     
 if __name__ == "__main__":

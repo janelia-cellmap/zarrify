@@ -35,6 +35,8 @@ zarr_chunks: [32, 32, 32]     # inner chunk shape
 shard_shape: [1024, 1024, 1024]  # outer shard — null to disable
 codec: zstd                   # zstd | gzip | blosc
 codec_level: 3                # null = per-codec default (zstd:3, gzip:6, blosc:5)
+blosc_cname: zstd             # blosc only: blosclz | lz4 | lz4hc | snappy | zlib | zstd
+shuffle: shuffle               # blosc only: noshuffle | shuffle | bitshuffle (byte-shuffle before compressing)
 
 axes: [z, y, x]
 scale: [8.0, 8.0, 8.0]
