@@ -102,17 +102,12 @@ class Zarr2Group(Volume):
                     target.attrs[k] = v
 
     def _copy_array_attrs(self, dest: str, array_paths: list[str]) -> None:
-        """Copy zarr v2 array .zattrs to the output zarr3 arrays."""
+        """Copy source array attributes to the output zarr3 arrays."""
         dst_store = zarr.storage.LocalStore(dest)
         for rel_path in array_paths:
-            zattrs_path = os.path.join(self.src_path, rel_path, '.zattrs')
-            if not os.path.exists(zattrs_path):
+            attrs = self._read_attrs(rel_path)
+            if not attrs:
                 continue
-            with open(zattrs_path) as f:
-                try:
-                    attrs = json.load(f)
-                except json.JSONDecodeError:
-                    continue
             dst_arr = zarr.open_array(store=dst_store, path=rel_path, mode='a')
             for k, v in attrs.items():
                 dst_arr.attrs[k] = v
