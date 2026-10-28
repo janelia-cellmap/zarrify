@@ -75,7 +75,12 @@ def check_shardslab_fits_in_ram(
     chunk_shape: list[int],
     client: Client,
 ) -> None:
-    """Raise ValueError if one shard does not fit in a single Dask worker's RAM.
+    """Raise ValueError if one shard does not fit in a worker's per-thread RAM budget.
+
+    A worker can run up to `nthreads` chunk tasks concurrently, each holding a
+    full shard's worth of decompressed data in RAM at once. So the safe budget
+    per shard is the worker's total memory divided by its thread count, not
+    the worker's total memory.
 
     Proposes a reduced shard_shape (axis-0 extent trimmed to fit) in the error message.
     Logs and skips silently if worker memory cannot be queried.
@@ -86,28 +91,33 @@ def check_shardslab_fits_in_ram(
     try:
         client.wait_for_workers(n_workers=1, timeout=60)
         workers_info = client.scheduler_info()["workers"]
-        worker_memory_bytes = next(iter(workers_info.values()))["memory_limit"]
+        worker_info = next(iter(workers_info.values()))
+        worker_memory_bytes = worker_info["memory_limit"]
+        worker_nthreads = worker_info.get("nthreads", 1) or 1
+        per_thread_budget_bytes = worker_memory_bytes // worker_nthreads
     except Exception as e:
         logger.warning(f"Could not query worker memory limit: {e}. Skipping shard RAM check.")
         return
 
     logger.info(
         f"Shard size: {shard_bytes / 1e9:.2f} GB, "
-        f"worker RAM: {worker_memory_bytes / 1e9:.2f} GB"
+        f"worker RAM: {worker_memory_bytes / 1e9:.2f} GB over {worker_nthreads} thread(s) "
+        f"= {per_thread_budget_bytes / 1e9:.2f} GB per-thread budget"
     )
-    if shard_bytes <= worker_memory_bytes:
+    if shard_bytes <= per_thread_budget_bytes:
         return
 
-    # Propose a fitting shard by reducing axis-0 (Z) to what fits in RAM
+    # Propose a fitting shard by reducing axis-0 (Z) to what fits in the per-thread budget
     xy_bytes = int(np.prod(shard_shape[1:])) * dtype_bytes
-    max_z = int(worker_memory_bytes // xy_bytes)
+    max_z = int(per_thread_budget_bytes // xy_bytes)
     chunk_z = chunk_shape[0] if chunk_shape else 1
     proposed_z = max(chunk_z, (max_z // chunk_z) * chunk_z)
     proposed = [proposed_z] + list(shard_shape[1:])
 
     raise ValueError(
-        f"Shard does not fit in worker RAM: "
+        f"Shard does not fit in worker's per-thread RAM budget: "
         f"shard_shape={shard_shape}, dtype={np.dtype(dtype)}, "
-        f"shard size={shard_bytes / 1e9:.2f} GB > worker limit={worker_memory_bytes / 1e9:.2f} GB. "
+        f"shard size={shard_bytes / 1e9:.2f} GB > per-thread budget={per_thread_budget_bytes / 1e9:.2f} GB "
+        f"(worker RAM={worker_memory_bytes / 1e9:.2f} GB / {worker_nthreads} threads). "
         f"Proposed shard_shape: {proposed}"
     )

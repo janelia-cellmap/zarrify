@@ -409,7 +409,7 @@ def save_chunk(
     src = open_ts(src_spec)
     data = src[chunk_slice].read().result()
     # only store data if it is not all 0s
-    if (data == 0).all():
+    if not data.any():
         return
     if invert:
         data = np.invert(data)
