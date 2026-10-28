@@ -30,6 +30,31 @@ class Zarr2Group(Volume):
     ):
         super().__init__(src_path, axes, scale, translation, units)
 
+    def _find_multiscales_axes(self, rel_path: str) -> list[str] | None:
+        """Walk up from *rel_path* and return axes from the nearest multiscales group.
+
+        Returns the names of the axes in the first ancestor `.zattrs` that
+        contains an OME-NGFF `multiscales` entry. Returns None if no such
+        ancestor is found.
+        """
+        current = os.path.dirname(rel_path)
+        while True:
+            zattrs = os.path.join(self.src_path, current, '.zattrs') if current else os.path.join(self.src_path, '.zattrs')
+            if os.path.exists(zattrs):
+                try:
+                    with open(zattrs) as f:
+                        attrs = json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    attrs = {}
+                ms_list = attrs.get('multiscales') or []
+                if ms_list:
+                    axes_meta = ms_list[0].get('axes') or []
+                    if axes_meta:
+                        return [a['name'] if isinstance(a, dict) else a for a in axes_meta]
+            if not current:
+                return None
+            current = os.path.dirname(current)
+
     def _find_arrays(self) -> list[str]:
         """Return store-relative paths of all zarr v2 arrays (dirs containing .zarray)."""
         array_paths = []
@@ -102,11 +127,22 @@ class Zarr2Group(Volume):
         array_paths = self._find_arrays()
         logger.info(f"Found {len(array_paths)} zarr v2 arrays: {array_paths}")
 
-        # Validate every source array's rank against config metadata before any
-        # data is written. Multiscale datasets must have homogeneous rank.
+        # Resolve dimension_names for every array up front (from each array's
+        # enclosing multiscales group) and fail fast if any array's rank does
+        # not match its multiscales axes. Multiscale datasets must have
+        # homogeneous rank — this catches mismatches before any writes start.
+        array_dim_names: dict[str, list[str]] = {}
         for rel_path in array_paths:
             with open(os.path.join(self.src_path, rel_path, '.zarray')) as f:
-                self._validate_metadata_rank(len(json.load(f)['shape']))
+                shape_len = len(json.load(f)['shape'])
+            axes = self._find_multiscales_axes(rel_path)
+            if axes is None or len(axes) != shape_len:
+                raise ValueError(
+                    f"Could not find OME multiscales axes matching rank {shape_len} "
+                    f"for array '{rel_path}'. Source must carry multiscales "
+                    f"metadata at an enclosing group."
+                )
+            array_dim_names[rel_path] = axes
 
         dst_store = zarr.storage.LocalStore(dest)
         dst_root = zarr.open_group(store=dst_store, mode='a')
@@ -120,6 +156,7 @@ class Zarr2Group(Volume):
 
             shape = tuple(zarray_meta['shape'])
             dtype = np.dtype(zarray_meta['dtype'])
+            dim_names = array_dim_names[rel_path]
 
             arr_chunk_shape = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
             arr_shard_shape = (
@@ -131,8 +168,6 @@ class Zarr2Group(Volume):
             )
             if arr_shard_shape is not None:
                 check_shardslab_fits_in_ram(arr_shard_shape, dtype, arr_chunk_shape, client)
-
-            dim_names = list(self.metadata["axes"])
 
             src_spec = zarr2_spec(self.src_path, rel_path)
             dst_spec = zarr3_spec(
