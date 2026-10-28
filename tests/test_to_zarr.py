@@ -76,23 +76,16 @@ def test_tiff_2d_and_mrc_to_zarr3(tmp_path, dask_client, ext, shape):
     assert np.array_equal(_read(dest), data)
 
 
-def test_4d_tiff_rgb(tmp_path):
-    """Test 4D TIFF with channel axis (c, z, y, x)."""
-    shape = (3, 10, 64, 64)
-    data = np.random.randint(0, 255, shape, dtype=np.uint8)
+def test_4d_tiff_with_default_config(tmp_path, dask_client):
+    """4D TIFF (c, z, y, x) with the to_zarr defaults."""
+    data = np.random.randint(0, 255, (3, 10, 64, 64), dtype=np.uint8)
+    src = tmp_path / "rgb.tif"
+    tifffile.imwrite(src, data)
+    dest = tmp_path / "rgb.zarr"
 
-    src_path = tmp_path / "test_4d_rgb.tif"
-    tifffile.imwrite(src_path, data)
-    dest_path = tmp_path / "test_4d_rgb.zarr"
+    to_zarr(str(src), str(dest), dask_client, workers=1)
 
-    dask_client = initialize_dask_client('local')
-    to_zarr(str(src_path), str(dest_path), dask_client)
-
-    src_data = tifffile.imread(src_path)
-    dest_data = open_ts(zarr3_spec(str(dest_path), 's0'))[:].read().result()
-
-    assert dest_data.shape == src_data.shape
-    assert np.array_equal(dest_data, src_data)
+    assert np.array_equal(_read(dest), data)
 
 
 def test_n5_to_zarr(tmp_path):
