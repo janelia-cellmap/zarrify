@@ -27,6 +27,7 @@ class ZarrifyConfig(BaseModel):
     scale: List[float] = [1.0, 1.0, 1.0, 1.0]
     units: List[str] = ["", "nanometer", "nanometer", "nanometer"]
     optimize_reads: bool = True
+    invert: bool = False
     
     multiscale: bool = False
     ms_workers: int = 100

@@ -298,6 +298,7 @@ class N5Group(Volume):
         chunk_shape: list[int],
         shard_shape: list[int] | None = None,
         codec: dict = zstd_codec(level=6),
+        invert: bool = False,
     ) -> None:
         """Copy all N5 arrays into a zarr3 store via TensorStore.
 
@@ -319,6 +320,10 @@ class N5Group(Volume):
             Outer shard shape. When provided, enables sharding.
         codec:
             Compression codec dict. Defaults to zstd_codec(level=6).
+        invert:
+            When True, bitwise-invert voxel data before writing. The output
+            fill_value is also inverted, so skipped all-zero chunks read back
+            as inverted zeros (e.g. 255 for uint8).
         """
         logging.basicConfig(
             level=logging.INFO,
@@ -382,6 +387,8 @@ class N5Group(Volume):
                 codec=codec,
                 dimension_names=dim_names,
                 create=True,
+                # skipped all-zero source chunks must read back as inverted zeros
+                fill_value=np.invert(dtype.type(0)).item() if invert else 0,
             )
 
             dest_arr = open_ts(dst_spec)
@@ -397,7 +404,7 @@ class N5Group(Volume):
                 logging.info(f"{idx + 1} / {len(out_slices_partitioned)}")
                 start = time.time()
                 fut = client.map(
-                    lambda v: save_chunk(src_spec, dst_spec, v, invert=False), part
+                    lambda v: save_chunk(src_spec, dst_spec, v, invert=invert), part
                 )
                 logging.info(
                     f"Submitted {len(part)} tasks to the scheduler in {time.time() - start:.2f}s"

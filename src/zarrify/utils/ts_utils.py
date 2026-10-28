@@ -149,6 +149,7 @@ def zarr3_spec(
     dimension_names: list[str] | None = None,
     *,
     create: bool = False,
+    fill_value: int | float | bool = 0,
 ) -> dict:
     """Build a TensorStore zarr3 driver spec.
 
@@ -189,6 +190,8 @@ def zarr3_spec(
     create:
         When True, embed creation metadata so ts.open(spec) creates the array
         on disk if absent.
+    fill_value:
+        Value that unwritten chunks read as. Only used when *create* is True.
 
     Returns
     -------
@@ -228,7 +231,7 @@ def zarr3_spec(
             },
             "data_type": np.dtype(dtype).name,
             "codecs": _build_codecs(resolved_codec, chunk_shape if shard_shape is not None else None, checksum),
-            "fill_value": 0,
+            "fill_value": fill_value,
             "dimension_names": list(dimension_names),
         }
 

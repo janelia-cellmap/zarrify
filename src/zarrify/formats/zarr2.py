@@ -118,6 +118,7 @@ class Zarr2Group(Volume):
         chunk_shape: list[int],
         shard_shape: list[int] | None = None,
         codec: dict = zstd_codec(level=6),
+        invert: bool = False,
     ) -> None:
         logging.basicConfig(
             level=logging.INFO,
@@ -180,6 +181,8 @@ class Zarr2Group(Volume):
                 codec=codec,
                 dimension_names=dim_names,
                 create=True,
+                # skipped all-zero source chunks must read back as inverted zeros
+                fill_value=np.invert(dtype.type(0)).item() if invert else 0,
             )
 
             dest_arr = open_ts(dst_spec)
@@ -194,7 +197,7 @@ class Zarr2Group(Volume):
                 logger.info(f"{rel_path}: {idx + 1} / {len(out_slices_partitioned)}")
                 start = time.time()
                 fut = client.map(
-                    lambda v: save_chunk(src_spec, dst_spec, v), part
+                    lambda v: save_chunk(src_spec, dst_spec, v, invert=invert), part
                 )
                 logger.info(f"Submitted {len(part)} tasks in {time.time() - start:.2f}s")
                 wait(fut)
@@ -231,12 +234,15 @@ def save_chunk(
     src_spec: dict,
     dst_spec: dict,
     chunk_slice: Tuple[slice, ...],
+    invert: bool = False,
 ) -> None:
     src = open_ts(src_spec)
     data = src[chunk_slice].read().result()
     try:
         if not data.any():
             return
+        if invert:
+            data = np.invert(data)
         dest = open_ts(dst_spec)
         dest[chunk_slice].write(data).result()
     finally:
