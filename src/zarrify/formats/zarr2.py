@@ -60,6 +60,15 @@ class Zarr2Group(Volume):
                 return None
             current = os.path.dirname(current)
 
+    def _read_attrs(self, rel_path: str) -> dict:
+        """Return the .zattrs of the node at *rel_path*, or {} if absent or unreadable."""
+        zattrs_path = os.path.join(self.src_path, rel_path, '.zattrs')
+        try:
+            with open(zattrs_path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return {}
+
     def _find_arrays(self) -> list[str]:
         """Return store-relative paths of all zarr v2 arrays (dirs containing .zarray)."""
         array_paths = []
