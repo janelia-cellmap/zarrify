@@ -298,6 +298,7 @@ class N5Group(Volume):
         chunk_shape: list[int],
         shard_shape: list[int] | None = None,
         codec: dict = zstd_codec(level=6),
+        invert: bool = False,
     ) -> None:
         """Copy all N5 arrays into a zarr3 store via TensorStore.
 
@@ -397,7 +398,7 @@ class N5Group(Volume):
                 logging.info(f"{idx + 1} / {len(out_slices_partitioned)}")
                 start = time.time()
                 fut = client.map(
-                    lambda v: save_chunk(src_spec, dst_spec, v, invert=False), part
+                    lambda v: save_chunk(src_spec, dst_spec, v, invert=invert), part
                 )
                 logging.info(
                     f"Submitted {len(part)} tasks to the scheduler in {time.time() - start:.2f}s"

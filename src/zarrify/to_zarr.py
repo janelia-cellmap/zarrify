@@ -89,6 +89,7 @@ def to_zarr(src : str,
             codec_level : int | None = None,
             blosc_cname : str | None = None,
             shuffle : str | None = None,
+            invert : bool = False,
             ):
     """Convert Tiff stack, 3D Tiff, N5, or MRC file to OME-Zarr.
 
@@ -109,6 +110,7 @@ def to_zarr(src : str,
             'zstd', 'snappy', 'zlib'). Ignored unless codec='blosc'.
         shuffle (str | None, optional): Blosc-only byte-shuffle filter ('noshuffle', 'shuffle',
             'bitshuffle'). Ignored unless codec='blosc'.
+        invert (bool, optional): bitwise-invert voxel data before writing. N5Group and Zarr2Group sources only.
     """
     logger.info(f"Initializing dataset from {src}")
     dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
@@ -120,14 +122,14 @@ def to_zarr(src : str,
     if isinstance(dataset, N5Group):
         logger.info("Detected N5Group — scaling workers and starting write")
         client.cluster.scale(workers)
-        dataset.write_to_zarr(dest, client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
+        dataset.write_to_zarr(dest, client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict, invert=invert)
         client.cluster.scale(0)
         return
 
     if isinstance(dataset, Zarr2Group):
         logger.info("Detected Zarr2Group — scaling workers and starting write")
         client.cluster.scale(workers)
-        dataset.write_to_zarr(str(dest), client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict)
+        dataset.write_to_zarr(str(dest), client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict, invert=invert)
         client.cluster.scale(0)
         logger.info("Zarr2Group write complete")
         return
@@ -273,7 +275,14 @@ def to_zarr(src : str,
 @click.option(
     "--optimize_reads",
     is_flag=True,
+    default=None,
     help="Enable optimized image loading using chunk-aligned reads.",
+)
+@click.option(
+    "--invert",
+    is_flag=True,
+    default=None,
+    help="Bitwise-invert voxel data before writing. N5 and zarr v2 sources only.",
 )
 
 #def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
@@ -312,6 +321,7 @@ def cli(config, **kwargs):
             codec_level=configs.get('codec_level'),
             blosc_cname=configs.get('blosc_cname'),
             shuffle=configs.get('shuffle'),
+            invert=configs.get('invert', False),
     )
     
 if __name__ == "__main__":

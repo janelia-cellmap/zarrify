@@ -44,6 +44,7 @@ translation: [0.0, 0.0, 0.0]
 units: [nanometer, nanometer, nanometer]
 
 optimize_reads: false         # chunk-aligned TIFF reads (single TIFF only)
+invert: false                 # bitwise-invert voxel data (N5 and zarr v2 sources only)
 
 multiscale: false             # build a multiscale pyramid
 ms_workers: 100
