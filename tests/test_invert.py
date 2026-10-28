@@ -14,7 +14,7 @@ to_zarr_module = importlib.import_module("zarrify.to_zarr")
 SHAPE = (4, 32, 32)
 CONFIG = dict(axes=['z', 'y', 'x'], scale=[1.0, 1.0, 1.0],
               translation=[0.0, 0.0, 0.0], units=['nanometer'] * 3,
-              zarr_chunks=[4, 32, 32])
+              zarr_chunks=[4, 32, 32], workers=1)
 
 
 @pytest.mark.parametrize("source", ["zarr2", "n5"])
