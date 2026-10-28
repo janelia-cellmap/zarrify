@@ -9,7 +9,7 @@ from zarrify.utils.ts_utils import open_ts, zarr3_spec
 SHAPE = (4, 32, 32)
 CONFIG = dict(axes=['z', 'y', 'x'], scale=[1.0, 1.0, 1.0],
               translation=[0.0, 0.0, 0.0], units=['nanometer'] * 3,
-              zarr_chunks=[4, 32, 32])
+              zarr_chunks=[4, 32, 32], workers=1)
 
 
 def _dimension_names(dest, path='s0'):
