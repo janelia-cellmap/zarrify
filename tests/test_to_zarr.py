@@ -1,7 +1,5 @@
 """One conversion per source format; each test checks values and OME-NGFF 0.5 metadata of its output."""
-import itertools
 import json
-from pathlib import Path
 
 import mrcfile
 import numpy as np
@@ -58,56 +56,24 @@ def test_tiff_to_zarr3(tmp_path, dask_client):
     assert [a.name for a in image.ome_attributes.multiscales[0].axes] == axes
 
 
-@pytest.fixture
-def create_test_file(tmp_path):
-    """Factory fixture to create test files with specified format and dimensions."""
-    def _create_file(ext: str, shape: tuple):
-        data = np.random.rand(*shape).astype(np.uint8)
-        file_path = tmp_path / f"test_image_{len(shape)}d.{ext}"
-
-        if ext in ["tiff", "tif"]:
-            tifffile.imwrite(file_path, data)
-        elif ext == "mrc":
-            with mrcfile.new(file_path, overwrite=True) as mrc:
-                mrc.set_data(data.astype(data.dtype))
-        else:
-            raise ValueError("Unsupported file format")
-
-        return file_path, data
-    return _create_file
-
-
-FORMATS = ['tif', 'tiff', 'mrc']
-
-
-SHAPES = [(40, 50), (10, 30, 50)]  # 2D and 3D (no size-1 dims to keep MRC squeeze stable)
-
-
-@pytest.mark.parametrize("ext,shape", list(itertools.product(FORMATS, SHAPES)))
-def test_to_zarr(create_test_file, ext, shape):
-    src_path, expected_data = create_test_file(ext, shape)
-    dest_path = Path(f"{src_path.with_suffix('')}.zarr")
-
+@pytest.mark.parametrize("ext,shape", [("tif", (40, 50)), ("mrc", (10, 30, 50))], ids=["tiff-2d", "mrc-3d"])
+def test_tiff_2d_and_mrc_to_zarr3(tmp_path, dask_client, ext, shape):
+    data = np.random.randint(0, 255, shape, dtype=np.uint8)
+    src = tmp_path / f"img.{ext}"
+    if ext == "mrc":
+        with mrcfile.new(src) as mrc:
+            mrc.set_data(data)
+    else:
+        tifffile.imwrite(src, data)
+    dest = tmp_path / "img.zarr"
     ndim = len(shape)
-    axes = ['z', 'y', 'x'][-ndim:]
-    units = ['nanometer'] * ndim
-    scale = [1.0] * ndim
-    translation = [0.0] * ndim
 
-    dask_client = initialize_dask_client('local')
-    to_zarr(src_path, dest_path, dask_client,
-            axes=axes, scale=scale, translation=translation, units=units,
+    to_zarr(str(src), str(dest), dask_client, workers=1,
+            axes=["z", "y", "x"][-ndim:], scale=[1.0] * ndim,
+            translation=[0.0] * ndim, units=["nanometer"] * ndim,
             zarr_chunks=[64] * ndim)
 
-    if src_path.suffix.lstrip('.') in ['tif', 'tiff']:
-        src_data = tifffile.imread(src_path)
-    elif src_path.suffix.lstrip('.') == 'mrc':
-        with mrcfile.open(src_path, permissive=True) as mrc:
-            src_data = mrc.data
-
-    dest_data = open_ts(zarr3_spec(str(dest_path), 's0'))[:].read().result()
-    assert np.array_equal(dest_data, src_data)
-    assert np.array_equal(dest_data, expected_data)
+    assert np.array_equal(_read(dest), data)
 
 
 def test_4d_tiff_rgb(tmp_path):
