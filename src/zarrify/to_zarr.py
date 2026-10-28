@@ -115,7 +115,7 @@ def to_zarr(src : str,
             'zstd', 'snappy', 'zlib'). Ignored unless codec='blosc'.
         shuffle (str | None, optional): Blosc-only byte-shuffle filter ('noshuffle', 'shuffle',
             'bitshuffle'). Ignored unless codec='blosc'.
-        invert (bool, optional): bitwise-invert voxel data before writing. N5Group and Zarr2Group sources only.
+        invert (bool, optional): bitwise-invert voxel data before writing. N5Group, Zarr2Group and Zarr3Group sources only.
     """
     logger.info(f"Initializing dataset from {src}")
     dataset = init_dataset(src, axes, scale, translation, units, optimize_reads)
@@ -131,12 +131,13 @@ def to_zarr(src : str,
         client.cluster.scale(0)
         return
 
+    # Zarr3Group subclasses Zarr2Group, so this branch handles both
     if isinstance(dataset, Zarr2Group):
-        logger.info("Detected Zarr2Group — scaling workers and starting write")
+        logger.info(f"Detected {type(dataset).__name__} — scaling workers and starting write")
         client.cluster.scale(workers)
         dataset.write_to_zarr(str(dest), client, zarr_chunks, shard_shape=shard_shape, codec=codec_dict, invert=invert)
         client.cluster.scale(0)
-        logger.info("Zarr2Group write complete")
+        logger.info(f"{type(dataset).__name__} write complete")
         return
     else:
         logger.info(f"Input dataset: {type(dataset)}")
