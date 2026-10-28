@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from pathlib import Path
@@ -12,6 +13,7 @@ from zarrify.formats.n5 import N5Group
 from zarrify.formats.tiff import Tiff
 from zarrify.formats.tiff_stack import TiffStack
 from zarrify.formats.zarr2 import Zarr2Group
+from zarrify.formats.zarr3 import Zarr3Group
 from zarrify.utils.dask_utils import initialize_dask_client, check_shardslab_fits_in_ram
 from zarrify.utils.pydantic_models import validate_config
 from zarrify.utils.ts_utils import align_shard_to_chunks, build_codec, zarr3_spec
@@ -55,10 +57,13 @@ def init_dataset(src :str,
         return N5Group(*params)
     elif ext == '.zarr' or any(part.endswith('.zarr') for part in src_path.parts):
         # src may be the .zarr root or any group inside it (e.g. a single
-        # multiscale array group). Require a .zgroup so we only convert groups.
+        # multiscale array group). Require group metadata so we only convert groups.
         if (src_path / '.zgroup').exists():
             return Zarr2Group(*params)
-        raise ValueError(f"zarr v3 as source is not supported: {src}")
+        zarr_json = src_path / 'zarr.json'
+        if zarr_json.exists() and json.loads(zarr_json.read_text()).get('node_type') == 'group':
+            return Zarr3Group(*params)
+        raise ValueError(f"zarr source must be a group (.zgroup, or zarr.json with node_type 'group'): {src}")
     elif src_path.is_dir():
         return TiffStack(*params)
     elif ext == ".mrc":
