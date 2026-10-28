@@ -18,6 +18,11 @@ from zarrify.utils.volume import Volume
 logger = logging.getLogger(__name__)
 
 
+def _multiscales(attrs: dict) -> list:
+    """Return the OME-NGFF multiscales list from *attrs* (0.5 'ome' wrapper or 0.4 top level)."""
+    return (attrs.get('ome') or {}).get('multiscales') or attrs.get('multiscales') or []
+
+
 class Zarr2Group(Volume):
 
     def __init__(
