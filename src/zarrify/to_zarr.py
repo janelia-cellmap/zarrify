@@ -288,7 +288,7 @@ def to_zarr(src : str,
     "--invert",
     is_flag=True,
     default=None,
-    help="Bitwise-invert voxel data before writing. N5 and zarr v2 sources only.",
+    help="Bitwise-invert voxel data before writing. N5, zarr v2 and zarr v3 sources only.",
 )
 
 #def cli(src, dest, workers, cluster, zarr_chunks, axes, translation, scale, units, log_dir, extra_directives, optimize_reads):
