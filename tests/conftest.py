@@ -1,16 +1,16 @@
-"""Shared fixtures: a module-scoped dask client and builders for small N5 / zarr v2 sources."""
+"""Shared fixtures: a session-scoped 1-worker dask client and builders for small N5 / zarr v2 sources."""
 import json
 
 import numpy as np
 import pytest
 import tensorstore as ts
 
-from zarrify.utils.dask_utils import initialize_dask_client
+from dask.distributed import Client, LocalCluster
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def dask_client():
-    client = initialize_dask_client("local")
+    client = Client(LocalCluster(n_workers=1, processes=False))
     yield client
     client.close()
 
