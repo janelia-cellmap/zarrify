@@ -6,7 +6,10 @@ import zarr
 from zarrify.to_zarr import to_zarr
 from zarrify.utils.ts_utils import open_ts, zarr3_spec
 
+
 SHAPE = (4, 32, 32)
+
+
 CONFIG = dict(axes=['z', 'y', 'x'], scale=[1.0, 1.0, 1.0],
               translation=[0.0, 0.0, 0.0], units=['nanometer'] * 3,
               zarr_chunks=[4, 32, 32], workers=1)
@@ -21,17 +24,6 @@ def test_zarr2_dimension_names_from_source(tmp_path, make_zarr2_source, dask_cli
     """Source multiscales axes win over the config axes."""
     data = np.random.randint(1, 255, SHAPE, dtype=np.uint8)
     src = make_zarr2_source(data, SHAPE, axes=('c', 'y', 'x'))
-    dest = tmp_path / 'out.zarr'
-
-    to_zarr(str(src), str(dest), dask_client, **CONFIG)
-
-    assert _dimension_names(dest) == ['c', 'y', 'x']
-
-
-def test_n5_dimension_names_from_source(tmp_path, make_n5_source, dask_client):
-    """N5 root 'axes' attribute wins over the config axes."""
-    data = np.random.randint(1, 255, SHAPE, dtype=np.uint8)
-    src = make_n5_source(data, SHAPE, axes=('c', 'y', 'x'))
     dest = tmp_path / 'out.zarr'
 
     to_zarr(str(src), str(dest), dask_client, **CONFIG)

@@ -88,58 +88,25 @@ def test_4d_tiff_with_default_config(tmp_path, dask_client):
     assert np.array_equal(_read(dest), data)
 
 
-def test_n5_to_zarr(tmp_path):
-    """Test N5 group to zarr3 conversion."""
-    shape = (10, 32, 32)
-    chunks = (10, 32, 32)
-    data = np.random.randint(0, 255, shape, dtype=np.uint8)
+def test_n5_to_zarr3(tmp_path, make_n5_source, dask_client):
+    """Values, OME 0.5 multiscales; dimension_names come from the N5 'axes', not the config axes."""
+    data = np.random.randint(1, 255, (4, 32, 32), dtype=np.uint8)
+    src = make_n5_source(data, data.shape, axes=("c", "y", "x"))
+    dest = tmp_path / "out.zarr"
 
-    # Create a minimal N5 store using TensorStore (zarr v3 dropped N5Store)
-    n5_path = tmp_path / "test.n5"
-    n5_arr_spec = {
-        'driver': 'n5',
-        'kvstore': {'driver': 'file', 'path': str(n5_path)},
-        'path': 's0',
-        'metadata': {
-            'dataType': np.dtype(data.dtype).name,
-            'dimensions': list(shape),
-            'blockSize': list(chunks),
-            'compression': {'type': 'raw'},
-        },
-        'create': True,
-        'open': True,
-    }
-    ts.open(n5_arr_spec).result()[:].write(data).result()
+    to_zarr(str(src), str(dest), dask_client, workers=1,
+            axes=["z", "y", "x"], scale=[1.0, 1.0, 1.0],
+            translation=[0.0, 0.0, 0.0], units=["nanometer"] * 3,
+            zarr_chunks=[4, 32, 32])
 
-    # Write N5 group and array attributes required by N5Group
-    root_attrs = {
-        'n5': '2.0.0',
-        'axes': ['z', 'y', 'x'],
-        'units': ['nm', 'nm', 'nm'],
-        'scales': [[1.0, 1.0, 1.0]],
-    }
-    (n5_path / 'attributes.json').write_text(json.dumps(root_attrs))
+    assert np.array_equal(_read(dest), data)
 
-    s0_attrs_path = n5_path / 's0' / 'attributes.json'
-    s0_attrs = json.loads(s0_attrs_path.read_text()) if s0_attrs_path.exists() else {}
-    s0_attrs['transform'] = {
-        'scale': [1.0, 1.0, 1.0],
-        'translate': [0.0, 0.0, 0.0],
-        'units': ['nm', 'nm', 'nm'],
-        'axes': ['z', 'y', 'x'],
-    }
-    s0_attrs_path.write_text(json.dumps(s0_attrs))
-
-    dest_path = tmp_path / "test_n5.zarr"
-    dask_client = initialize_dask_client('local')
-    to_zarr(str(n5_path), str(dest_path), dask_client,
-            axes=['z', 'y', 'x'], scale=[1.0, 1.0, 1.0],
-            translation=[0.0, 0.0, 0.0], units=['nm', 'nm', 'nm'],
-            zarr_chunks=[10, 32, 32])
-
-    dest_data = open_ts(zarr3_spec(str(dest_path), 's0'))[:].read().result()
-    assert dest_data.shape == data.shape
-    assert np.array_equal(dest_data, data)
+    attrs = _root_attrs(dest)
+    assert attrs["ome"]["version"] == "0.5"
+    ms = attrs["ome"]["multiscales"][0]
+    assert [a["name"] for a in ms["axes"]] == ["c", "y", "x"]
+    assert any(d["path"] == "s0" for d in ms["datasets"])
+    assert _dimension_names(dest) == ["c", "y", "x"]
 
 
 def test_zarr2_to_zarr3(tmp_path):

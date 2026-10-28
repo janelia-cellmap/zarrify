@@ -20,56 +20,6 @@ def dask_client():
     client.close()
 
 
-def test_n5_to_zarr3_ome_metadata_version(tmp_path, dask_client):
-    """N5 conversion output has ome.version == '0.5'."""
-    shape = (10, 32, 32)
-    data = np.random.randint(0, 255, shape, dtype=np.uint8)
-
-    n5_path = tmp_path / "test.n5"
-    ts.open({
-        "driver": "n5",
-        "kvstore": {"driver": "file", "path": str(n5_path)},
-        "path": "s0",
-        "metadata": {
-            "dataType": np.dtype(data.dtype).name,
-            "dimensions": list(shape),
-            "blockSize": list(shape),
-            "compression": {"type": "raw"},
-        },
-        "create": True,
-        "open": True,
-    }).result()[:].write(data).result()
-
-    (n5_path / "attributes.json").write_text(json.dumps({
-        "n5": "2.0.0",
-        "axes": ["z", "y", "x"],
-        "units": ["nm", "nm", "nm"],
-        "scales": [[1.0, 1.0, 1.0]],
-    }))
-    s0_attrs_path = n5_path / "s0" / "attributes.json"
-    s0_attrs = json.loads(s0_attrs_path.read_text()) if s0_attrs_path.exists() else {}
-    s0_attrs["transform"] = {
-        "scale": [1.0, 1.0, 1.0],
-        "translate": [0.0, 0.0, 0.0],
-        "units": ["nm", "nm", "nm"],
-        "axes": ["z", "y", "x"],
-    }
-    s0_attrs_path.write_text(json.dumps(s0_attrs))
-
-    dest = tmp_path / "test_n5.zarr"
-    to_zarr(str(n5_path), str(dest), dask_client,
-            axes=["z", "y", "x"], scale=[1.0, 1.0, 1.0],
-            translation=[0.0, 0.0, 0.0], units=["nm", "nm", "nm"],
-            zarr_chunks=[10, 32, 32])
-
-    root = zarr.open_group(zarr.storage.LocalStore(str(dest)), mode="r")
-    assert "ome" in root.attrs, "expected 'ome' key on N5 conversion output root"
-    assert root.attrs["ome"]["version"] == "0.5"
-    ms = root.attrs["ome"]["multiscales"][0]
-    assert [a["name"] for a in ms["axes"]] == ["z", "y", "x"]
-    assert any(d["path"] == "s0" for d in ms["datasets"])
-
-
 def test_zarr2_to_zarr3_upgrades_to_05(tmp_path, dask_client):
     """Converting a zarr2 source with 0.4 metadata produces zarr3 with 0.5."""
     shape = (10, 32, 32)
