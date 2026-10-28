@@ -1,0 +1,35 @@
+name: Latest dependencies
+
+# Monthly check against the newest releases that pyproject.toml allows,
+# i.e. what a fresh `pip install zarrify` would get. CI pins uv.lock, so
+# this is the only job that sees new upstream releases.
+on:
+  schedule:
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ['3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # --upgrade: re-resolve to the newest allowed versions (the lock change stays in this run only)
+      - name: Install dependencies
+        run: uv sync --upgrade --extra test
+
+      - name: Show upgraded packages
+        run: git diff --stat uv.lock && uv pip list
+
+      - name: Run tests
+        run: uv run pytest --maxfail=1 --disable-warnings -q
