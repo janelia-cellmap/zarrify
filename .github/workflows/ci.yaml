@@ -18,16 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Set up uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
 
+      # --locked: install exactly uv.lock, and fail if it is out of date with pyproject.toml
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install .[test] --no-cache-dir --verbose
+        run: uv sync --locked --extra test
 
       - name: Run tests
-        run: |
-          python -m pytest --maxfail=1 --disable-warnings -q
+        run: uv run pytest --maxfail=1 --disable-warnings -q
