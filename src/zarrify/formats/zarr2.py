@@ -1,3 +1,4 @@
+import ctypes
 import json
 import logging
 import os
@@ -151,7 +152,7 @@ class Zarr2Group(Volume):
 
             logger.info(f"{rel_path}: shape={shape}, dtype={dtype}, chunk={arr_chunk_shape}, shard={arr_shard_shape}")
             out_slices = slices_from_chunks(normalize_chunks(dest_chunks, shape=shape))
-            out_slices_partitioned = tuple(partition_all(100000, out_slices))
+            out_slices_partitioned = tuple(partition_all(1000, out_slices))
             logger.info(f"{rel_path}: {len(out_slices)} total slices, {len(out_slices_partitioned)} batch(es)")
 
             for idx, part in enumerate(out_slices_partitioned):
@@ -168,6 +169,29 @@ class Zarr2Group(Volume):
         self._copy_array_attrs(dest, array_paths)
 
 
+try:
+    _LIBC = ctypes.CDLL("libc.so.6")
+except OSError:  # not glibc (e.g. macOS)
+    _LIBC = None
+
+
+def _release_memory_to_os() -> None:
+    """Force glibc to hand freed heap pages back to the OS.
+
+    Freed chunk buffers return to the malloc arena, which can keep those pages
+    mapped indefinitely, so worker RSS creeps up across many sequential chunk
+    tasks even though nothing is actually leaked at the Python level. Dask's
+    MALLOC_TRIM_THRESHOLD_ does not cover this for large (shard-sized)
+    buffers. malloc_trim forces the pages back, keeping steady-state memory
+    close to a single chunk's footprint.
+
+    No gc.collect() here: save_chunk creates no reference cycles, so a full
+    collection per task only adds cost (~5x slower on small chunks).
+    """
+    if _LIBC is not None:
+        _LIBC.malloc_trim(0)
+
+
 def save_chunk(
     src_spec: dict,
     dst_spec: dict,
@@ -175,7 +199,11 @@ def save_chunk(
 ) -> None:
     src = open_ts(src_spec)
     data = src[chunk_slice].read().result()
-    if (data == 0).all():
-        return
-    dest = open_ts(dst_spec)
-    dest[chunk_slice].write(data).result()
+    try:
+        if not data.any():
+            return
+        dest = open_ts(dst_spec)
+        dest[chunk_slice].write(data).result()
+    finally:
+        del data
+        _release_memory_to_os()

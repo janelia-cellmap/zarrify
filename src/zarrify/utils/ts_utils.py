@@ -124,6 +124,19 @@ def align_shard_to_chunks(shard_shape: list[int], chunk_shape: list[int]) -> lis
 # Spec builders
 # ---------------------------------------------------------------------------
 
+# Forces TensorStore's internal thread pools to be fully serial, so the only
+# concurrency in the pipeline is the Dask worker's own thread count. Without
+# this, "shared" pools default to the host's total CPU count (which on a
+# shared HPC node can be far larger than the cores actually granted to the
+# job), letting a single chunk task fan out into extra concurrent buffers on
+# top of Dask's own per-worker concurrency.
+_DEFAULT_CONTEXT: dict = {
+    "data_copy_concurrency": {"limit": 1},
+    "file_io_concurrency": {"limit": 1},
+    "cache_pool": {"total_bytes_limit": 0},
+}
+
+
 def zarr3_spec(
     store_path: str,
     array_path: str,
@@ -187,6 +200,7 @@ def zarr3_spec(
         "kvstore": {"driver": "file", "path": str(store_path)},
         "path": array_path,
         "open": True,
+        "context": dict(_DEFAULT_CONTEXT),
     }
 
     if create:
@@ -241,6 +255,7 @@ def n5_spec(store_path: str, array_path: str) -> dict:
         "kvstore": {"driver": "file", "path": str(store_path)},
         "path": array_path,
         "open": True,
+        "context": dict(_DEFAULT_CONTEXT),
     }
 
 
@@ -264,6 +279,7 @@ def zarr2_spec(store_path: str, array_path: str) -> dict:
         "kvstore": {"driver": "file", "path": str(store_path)},
         "path": array_path,
         "open": True,
+        "context": dict(_DEFAULT_CONTEXT),
     }
 
 
