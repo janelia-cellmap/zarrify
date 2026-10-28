@@ -38,24 +38,17 @@ class Zarr2Group(Volume):
     def _find_multiscales_axes(self, rel_path: str) -> list[str] | None:
         """Walk up from *rel_path* and return axes from the nearest multiscales group.
 
-        Returns the names of the axes in the first ancestor `.zattrs` that
-        contains an OME-NGFF `multiscales` entry. Returns None if no such
+        Returns the names of the axes in the first ancestor group attributes
+        that contain an OME-NGFF `multiscales` entry. Returns None if no such
         ancestor is found.
         """
         current = os.path.dirname(rel_path)
         while True:
-            zattrs = os.path.join(self.src_path, current, '.zattrs') if current else os.path.join(self.src_path, '.zattrs')
-            if os.path.exists(zattrs):
-                try:
-                    with open(zattrs) as f:
-                        attrs = json.load(f)
-                except (json.JSONDecodeError, OSError):
-                    attrs = {}
-                ms_list = attrs.get('multiscales') or []
-                if ms_list:
-                    axes_meta = ms_list[0].get('axes') or []
-                    if axes_meta:
-                        return [a['name'] if isinstance(a, dict) else a for a in axes_meta]
+            ms_list = _multiscales(self._read_attrs(current or '.'))
+            if ms_list:
+                axes_meta = ms_list[0].get('axes') or []
+                if axes_meta:
+                    return [a['name'] if isinstance(a, dict) else a for a in axes_meta]
             if not current:
                 return None
             current = os.path.dirname(current)
