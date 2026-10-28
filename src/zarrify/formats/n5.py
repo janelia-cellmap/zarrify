@@ -320,6 +320,10 @@ class N5Group(Volume):
             Outer shard shape. When provided, enables sharding.
         codec:
             Compression codec dict. Defaults to zstd_codec(level=6).
+        invert:
+            When True, bitwise-invert voxel data before writing. The output
+            fill_value is also inverted, so skipped all-zero chunks read back
+            as inverted zeros (e.g. 255 for uint8).
         """
         logging.basicConfig(
             level=logging.INFO,
@@ -383,6 +387,8 @@ class N5Group(Volume):
                 codec=codec,
                 dimension_names=dim_names,
                 create=True,
+                # skipped all-zero source chunks must read back as inverted zeros
+                fill_value=np.invert(dtype.type(0)).item() if invert else 0,
             )
 
             dest_arr = open_ts(dst_spec)

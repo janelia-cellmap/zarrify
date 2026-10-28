@@ -181,6 +181,8 @@ class Zarr2Group(Volume):
                 codec=codec,
                 dimension_names=dim_names,
                 create=True,
+                # skipped all-zero source chunks must read back as inverted zeros
+                fill_value=np.invert(dtype.type(0)).item() if invert else 0,
             )
 
             dest_arr = open_ts(dst_spec)
