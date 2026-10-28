@@ -52,7 +52,7 @@ def test_zarr2_to_zarr3_writes_blosc_options(tmp_path, make_zarr2_source, dask_c
     src = make_zarr2_source(data, (4, 32, 32))
     dest = tmp_path / "out.zarr"
 
-    to_zarr(str(src), str(dest), dask_client,
+    to_zarr(str(src), str(dest), dask_client, workers=1,
             axes=["z", "y", "x"], scale=[1.0, 1.0, 1.0],
             translation=[0.0, 0.0, 0.0], units=["nanometer"] * 3,
             zarr_chunks=[4, 32, 32], codec="blosc", blosc_cname="zstd", shuffle="bitshuffle")
