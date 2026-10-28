@@ -62,6 +62,12 @@ class Zarr2Group(Volume):
         except (json.JSONDecodeError, OSError):
             return {}
 
+    def _read_array_meta(self, rel_path: str) -> tuple[tuple[int, ...], np.dtype]:
+        """Return (shape, dtype) of the array at *rel_path* from its .zarray."""
+        with open(os.path.join(self.src_path, rel_path, '.zarray')) as f:
+            zarray_meta = json.load(f)
+        return tuple(zarray_meta['shape']), np.dtype(zarray_meta['dtype'])
+
     def _find_arrays(self) -> list[str]:
         """Return store-relative paths of all zarr v2 arrays (dirs containing .zarray)."""
         array_paths = []
