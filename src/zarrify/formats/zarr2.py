@@ -25,6 +25,8 @@ def _multiscales(attrs: dict) -> list:
 
 class Zarr2Group(Volume):
 
+    format_name = 'zarr v2'
+
     def __init__(
         self,
         src_path: str,
@@ -137,7 +139,7 @@ class Zarr2Group(Volume):
         )
 
         array_paths = self._find_arrays()
-        logger.info(f"Found {len(array_paths)} zarr v2 arrays: {array_paths}")
+        logger.info(f"Found {len(array_paths)} {self.format_name} arrays: {array_paths}")
 
         # Resolve dimension_names for every array up front (from each array's
         # enclosing multiscales group) and fail fast if any array's rank does
@@ -145,8 +147,7 @@ class Zarr2Group(Volume):
         # homogeneous rank — this catches mismatches before any writes start.
         array_dim_names: dict[str, list[str]] = {}
         for rel_path in array_paths:
-            with open(os.path.join(self.src_path, rel_path, '.zarray')) as f:
-                shape_len = len(json.load(f)['shape'])
+            shape_len = len(self._read_array_meta(rel_path)[0])
             axes = self._find_multiscales_axes(rel_path)
             if axes is None or len(axes) != shape_len:
                 raise ValueError(
@@ -162,12 +163,7 @@ class Zarr2Group(Volume):
 
         for rel_path in array_paths:
             logger.info(f"Processing array: {rel_path}")
-            zarray_path = os.path.join(self.src_path, rel_path, '.zarray')
-            with open(zarray_path) as f:
-                zarray_meta = json.load(f)
-
-            shape = tuple(zarray_meta['shape'])
-            dtype = np.dtype(zarray_meta['dtype'])
+            shape, dtype = self._read_array_meta(rel_path)
             dim_names = array_dim_names[rel_path]
 
             arr_chunk_shape = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
@@ -181,7 +177,7 @@ class Zarr2Group(Volume):
             if arr_shard_shape is not None:
                 check_shardslab_fits_in_ram(arr_shard_shape, dtype, arr_chunk_shape, client)
 
-            src_spec = zarr2_spec(self.src_path, rel_path)
+            src_spec = self._src_spec(rel_path)
             dst_spec = zarr3_spec(
                 store_path=dest,
                 array_path=rel_path,
