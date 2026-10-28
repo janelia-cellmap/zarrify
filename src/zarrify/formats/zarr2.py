@@ -70,6 +70,17 @@ class Zarr2Group(Volume):
                 array_paths.append(os.path.relpath(dirpath, self.src_path))
         return array_paths
 
+    def _find_groups(self) -> list[str]:
+        """Return store-relative paths ('.' for the root) of dirs with .zgroup or .zattrs that are not arrays."""
+        group_paths = []
+        for dirpath, _, filenames in os.walk(self.src_path):
+            if '.zarray' in filenames:
+                continue
+            if '.zgroup' not in filenames and '.zattrs' not in filenames:
+                continue
+            group_paths.append(os.path.relpath(dirpath, self.src_path))
+        return group_paths
+
     def _copy_group_attrs(self, dst_root: zarr.Group) -> None:
         """Copy zarr v2 group-level .zattrs to the output zarr3 groups.
 
