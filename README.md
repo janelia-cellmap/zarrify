@@ -1,6 +1,6 @@
 # Zarrify
 
-Convert TIFF, TIFF stacks, MRC, N5, and zarr v2 files to OME-Zarr v3.
+Convert TIFF, TIFF stacks, MRC, N5, zarr v2 and zarr v3 files to OME-Zarr v3. A zarr v3 source is rewritten with the new chunks, shards and codec; its existing pyramid levels are kept.
 
 ## Install
 
@@ -23,7 +23,7 @@ Copy a config template from `config_examples/` and edit for your data.
 ## Config
 
 ```yaml
-src: "/path/to/input"         # tiff, tiff stack dir, .mrc, .n5, or zarr v2 .zarr
+src: "/path/to/input"         # tiff, tiff stack dir, .mrc, .n5, or zarr v2/v3 .zarr group
 dest: "/path/to/output.zarr"
 
 cluster: lsf                  # local | lsf
@@ -44,7 +44,7 @@ translation: [0.0, 0.0, 0.0]
 units: [nanometer, nanometer, nanometer]
 
 optimize_reads: false         # chunk-aligned TIFF reads (single TIFF only)
-invert: false                 # bitwise-invert voxel data (N5 and zarr v2 sources only)
+invert: false                 # bitwise-invert voxel data (N5, zarr v2 and zarr v3 sources only)
 
 multiscale: false             # build a multiscale pyramid
 ms_workers: 100

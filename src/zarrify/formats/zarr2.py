@@ -18,7 +18,14 @@ from zarrify.utils.volume import Volume
 logger = logging.getLogger(__name__)
 
 
+def _multiscales(attrs: dict) -> list:
+    """Return the OME-NGFF multiscales list from *attrs* (0.5 'ome' wrapper or 0.4 top level)."""
+    return (attrs.get('ome') or {}).get('multiscales') or attrs.get('multiscales') or []
+
+
 class Zarr2Group(Volume):
+
+    format_name = 'zarr v2'
 
     def __init__(
         self,
@@ -33,27 +40,39 @@ class Zarr2Group(Volume):
     def _find_multiscales_axes(self, rel_path: str) -> list[str] | None:
         """Walk up from *rel_path* and return axes from the nearest multiscales group.
 
-        Returns the names of the axes in the first ancestor `.zattrs` that
-        contains an OME-NGFF `multiscales` entry. Returns None if no such
+        Returns the names of the axes in the first ancestor group attributes
+        that contain an OME-NGFF `multiscales` entry. Returns None if no such
         ancestor is found.
         """
         current = os.path.dirname(rel_path)
         while True:
-            zattrs = os.path.join(self.src_path, current, '.zattrs') if current else os.path.join(self.src_path, '.zattrs')
-            if os.path.exists(zattrs):
-                try:
-                    with open(zattrs) as f:
-                        attrs = json.load(f)
-                except (json.JSONDecodeError, OSError):
-                    attrs = {}
-                ms_list = attrs.get('multiscales') or []
-                if ms_list:
-                    axes_meta = ms_list[0].get('axes') or []
-                    if axes_meta:
-                        return [a['name'] if isinstance(a, dict) else a for a in axes_meta]
+            ms_list = _multiscales(self._read_attrs(current or '.'))
+            if ms_list:
+                axes_meta = ms_list[0].get('axes') or []
+                if axes_meta:
+                    return [a['name'] if isinstance(a, dict) else a for a in axes_meta]
             if not current:
                 return None
             current = os.path.dirname(current)
+
+    def _read_attrs(self, rel_path: str) -> dict:
+        """Return the .zattrs of the node at *rel_path*, or {} if absent or unreadable."""
+        zattrs_path = os.path.join(self.src_path, rel_path, '.zattrs')
+        try:
+            with open(zattrs_path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _read_array_meta(self, rel_path: str) -> tuple[tuple[int, ...], np.dtype]:
+        """Return (shape, dtype) of the array at *rel_path* from its .zarray."""
+        with open(os.path.join(self.src_path, rel_path, '.zarray')) as f:
+            zarray_meta = json.load(f)
+        return tuple(zarray_meta['shape']), np.dtype(zarray_meta['dtype'])
+
+    def _src_spec(self, rel_path: str) -> dict:
+        """Return the TensorStore spec for reading the source array at *rel_path*."""
+        return zarr2_spec(self.src_path, rel_path)
 
     def _find_arrays(self) -> list[str]:
         """Return store-relative paths of all zarr v2 arrays (dirs containing .zarray)."""
@@ -63,25 +82,24 @@ class Zarr2Group(Volume):
                 array_paths.append(os.path.relpath(dirpath, self.src_path))
         return array_paths
 
-    def _copy_group_attrs(self, dst_root: zarr.Group) -> None:
-        """Copy zarr v2 group-level .zattrs to the output zarr3 groups.
-
-        OME-NGFF 0.4 multiscales are upgraded to the 0.5 'ome' wrapper.
-        """
+    def _find_groups(self) -> list[str]:
+        """Return store-relative paths ('.' for the root) of dirs with .zgroup or .zattrs that are not arrays."""
+        group_paths = []
         for dirpath, _, filenames in os.walk(self.src_path):
             if '.zarray' in filenames:
                 continue
             if '.zgroup' not in filenames and '.zattrs' not in filenames:
                 continue
-            attrs = {}
-            zattrs_path = os.path.join(dirpath, '.zattrs')
-            if os.path.exists(zattrs_path):
-                with open(zattrs_path) as f:
-                    try:
-                        attrs = json.load(f)
-                    except json.JSONDecodeError:
-                        pass
-            rel = os.path.relpath(dirpath, self.src_path)
+            group_paths.append(os.path.relpath(dirpath, self.src_path))
+        return group_paths
+
+    def _copy_group_attrs(self, dst_root: zarr.Group) -> None:
+        """Copy source group attributes to the output zarr3 groups.
+
+        OME-NGFF 0.4 multiscales are upgraded to the 0.5 'ome' wrapper.
+        """
+        for rel in self._find_groups():
+            attrs = self._read_attrs(rel)
             target = dst_root if rel == '.' else dst_root.require_group(rel)
             for k, v in attrs.items():
                 if k == 'multiscales':
@@ -96,17 +114,12 @@ class Zarr2Group(Volume):
                     target.attrs[k] = v
 
     def _copy_array_attrs(self, dest: str, array_paths: list[str]) -> None:
-        """Copy zarr v2 array .zattrs to the output zarr3 arrays."""
+        """Copy source array attributes to the output zarr3 arrays."""
         dst_store = zarr.storage.LocalStore(dest)
         for rel_path in array_paths:
-            zattrs_path = os.path.join(self.src_path, rel_path, '.zattrs')
-            if not os.path.exists(zattrs_path):
+            attrs = self._read_attrs(rel_path)
+            if not attrs:
                 continue
-            with open(zattrs_path) as f:
-                try:
-                    attrs = json.load(f)
-                except json.JSONDecodeError:
-                    continue
             dst_arr = zarr.open_array(store=dst_store, path=rel_path, mode='a')
             for k, v in attrs.items():
                 dst_arr.attrs[k] = v
@@ -126,7 +139,7 @@ class Zarr2Group(Volume):
         )
 
         array_paths = self._find_arrays()
-        logger.info(f"Found {len(array_paths)} zarr v2 arrays: {array_paths}")
+        logger.info(f"Found {len(array_paths)} {self.format_name} arrays: {array_paths}")
 
         # Resolve dimension_names for every array up front (from each array's
         # enclosing multiscales group) and fail fast if any array's rank does
@@ -134,8 +147,7 @@ class Zarr2Group(Volume):
         # homogeneous rank — this catches mismatches before any writes start.
         array_dim_names: dict[str, list[str]] = {}
         for rel_path in array_paths:
-            with open(os.path.join(self.src_path, rel_path, '.zarray')) as f:
-                shape_len = len(json.load(f)['shape'])
+            shape_len = len(self._read_array_meta(rel_path)[0])
             axes = self._find_multiscales_axes(rel_path)
             if axes is None or len(axes) != shape_len:
                 raise ValueError(
@@ -151,12 +163,7 @@ class Zarr2Group(Volume):
 
         for rel_path in array_paths:
             logger.info(f"Processing array: {rel_path}")
-            zarray_path = os.path.join(self.src_path, rel_path, '.zarray')
-            with open(zarray_path) as f:
-                zarray_meta = json.load(f)
-
-            shape = tuple(zarray_meta['shape'])
-            dtype = np.dtype(zarray_meta['dtype'])
+            shape, dtype = self._read_array_meta(rel_path)
             dim_names = array_dim_names[rel_path]
 
             arr_chunk_shape = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
@@ -170,7 +177,7 @@ class Zarr2Group(Volume):
             if arr_shard_shape is not None:
                 check_shardslab_fits_in_ram(arr_shard_shape, dtype, arr_chunk_shape, client)
 
-            src_spec = zarr2_spec(self.src_path, rel_path)
+            src_spec = self._src_spec(rel_path)
             dst_spec = zarr3_spec(
                 store_path=dest,
                 array_path=rel_path,
