@@ -68,6 +68,10 @@ class Zarr2Group(Volume):
             zarray_meta = json.load(f)
         return tuple(zarray_meta['shape']), np.dtype(zarray_meta['dtype'])
 
+    def _src_spec(self, rel_path: str) -> dict:
+        """Return the TensorStore spec for reading the source array at *rel_path*."""
+        return zarr2_spec(self.src_path, rel_path)
+
     def _find_arrays(self) -> list[str]:
         """Return store-relative paths of all zarr v2 arrays (dirs containing .zarray)."""
         array_paths = []
