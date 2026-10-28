@@ -20,6 +20,8 @@ class ZarrifyConfig(BaseModel):
     shard_shape: Optional[List[int]] = None
     codec: Literal['zstd', 'gzip', 'blosc'] = 'zstd'
     codec_level: Optional[int] = None  # filled by validator when omitted: zstd→3, gzip→6, blosc→5
+    blosc_cname: Optional[Literal['blosclz', 'lz4', 'lz4hc', 'snappy', 'zlib', 'zstd']] = None
+    shuffle: Optional[Literal['noshuffle', 'shuffle', 'bitshuffle']] = None
     axes: List[str] = ["c", "z", "y", "x"]
     translation: List[float] = [0.0, 0.0, 0.0, 0.0]
     scale: List[float] = [1.0, 1.0, 1.0, 1.0]
@@ -99,6 +101,12 @@ class ZarrifyConfig(BaseModel):
     def set_codec_level_default(self):
         if self.codec_level is None:
             self.codec_level = {'zstd': 3, 'gzip': 6, 'blosc': 5}[self.codec]
+        return self
+
+    @model_validator(mode='after')
+    def blosc_options_require_blosc_codec(self):
+        if self.codec != 'blosc' and (self.blosc_cname is not None or self.shuffle is not None):
+            raise ValueError("blosc_cname/shuffle only apply when codec='blosc'")
         return self
 
     @model_validator(mode='after')

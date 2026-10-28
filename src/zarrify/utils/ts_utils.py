@@ -286,11 +286,22 @@ def zarr2_spec(store_path: str, array_path: str) -> dict:
 _CODEC_DEFAULTS = {"zstd": 3, "gzip": 6, "blosc": 5}
 
 
-def build_codec(name: str, level: int | None = None) -> dict:
+def build_codec(
+    name: str,
+    level: int | None = None,
+    cname: str | None = None,
+    shuffle: str | None = None,
+) -> dict:
     """Return a TensorStore zarr3 codec dict from a codec name and compression level.
 
     When *level* is None the codec's own default is used:
     zstd → 3, gzip → 6, blosc → 5.
+
+    Byte-shuffling (a preprocessing step that improves compression of
+    structured numeric data, e.g. fibsem images) is only available through
+    Blosc in the zarr v3 codec spec — the plain "zstd"/"gzip" codecs have no
+    shuffle field. To get "zstd with shuffle", pick codec="blosc" and
+    cname="zstd".
 
     Parameters
     ----------
@@ -298,6 +309,14 @@ def build_codec(name: str, level: int | None = None) -> dict:
         Codec name. One of "zstd", "gzip", "blosc".
     level:
         Compression level. When None, a sensible per-codec default is applied.
+    cname:
+        Blosc-only: internal compressor ("lz4", "lz4hc", "blosclz", "zstd",
+        "snappy", "zlib"). Ignored for "zstd"/"gzip". Defaults to
+        blosc_codec's own default ("lz4") when None.
+    shuffle:
+        Blosc-only: byte-shuffle filter ("noshuffle", "shuffle", "bitshuffle").
+        Ignored for "zstd"/"gzip". Defaults to blosc_codec's own default
+        ("shuffle") when None.
     """
     if name not in _CODEC_DEFAULTS:
         raise ValueError(f"Unsupported codec: {name!r}. Choose from {list(_CODEC_DEFAULTS)}.")
@@ -307,7 +326,12 @@ def build_codec(name: str, level: int | None = None) -> dict:
     elif name == "gzip":
         return gzip_codec(resolved)
     else:
-        return blosc_codec(clevel=resolved)
+        blosc_kwargs = {"clevel": resolved}
+        if cname is not None:
+            blosc_kwargs["cname"] = cname
+        if shuffle is not None:
+            blosc_kwargs["shuffle"] = shuffle
+        return blosc_codec(**blosc_kwargs)
 
 
 def open_ts(spec: dict) -> ts.TensorStore:
