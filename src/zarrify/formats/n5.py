@@ -87,6 +87,28 @@ class N5Group(Volume):
             if os.path.isdir(os.path.join(n5src, obj)):
                 self.reconstruct_json(os.path.join(n5src, obj))
 
+    def _find_multiscales_axes(self, root_path: str, rel_path: str) -> list[str] | None:
+        """Walk up from *rel_path* and return axes from the nearest group's attributes.json.
+
+        N5 multiscale groups carry an 'axes' attribute in their attributes.json.
+        Stops at the store root; returns None if no enclosing group with an
+        'axes' attribute is found.
+        """
+        current = os.path.dirname(rel_path)
+        while True:
+            attrs_path = os.path.join(root_path, current, 'attributes.json') if current else os.path.join(root_path, 'attributes.json')
+            if os.path.exists(attrs_path):
+                try:
+                    with open(attrs_path) as f:
+                        attrs = json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    attrs = {}
+                if 'axes' in attrs:
+                    return list(attrs['axes'])
+            if not current:
+                return None
+            current = os.path.dirname(current)
+
     def _find_n5_arrays(self, root_path: str) -> list[str]:
         """Walk the N5 directory and return store-relative paths of all arrays.
 
@@ -309,14 +331,22 @@ class N5Group(Volume):
         # input n5 arrays list to convert
         n5_array_paths = self._find_n5_arrays(n5_root_path)
 
-        # Validate every source array's rank against config metadata before any
-        # data is written. Multiscale datasets must have homogeneous rank, so a
-        # mismatch on any array is a fatal config error and should be caught up
-        # front rather than partway through the conversion.
+        # Resolve dimension_names for every array up front (from each array's
+        # enclosing N5 group with an 'axes' attribute) and fail fast if any
+        # array's rank does not match. Multiscale datasets must have
+        # homogeneous rank — this catches mismatches before any writes start.
+        array_dim_names: dict[str, list[str]] = {}
         for rel_path in n5_array_paths:
             store_rel_path = os.path.join(self.path, rel_path) if self.path else rel_path
-            src_arr = open_ts(n5_spec(self.store_path, store_rel_path))
-            self._validate_metadata_rank(len(src_arr.shape))
+            shape_len = len(open_ts(n5_spec(self.store_path, store_rel_path)).shape)
+            axes = self._find_multiscales_axes(n5_root_path, rel_path)
+            if axes is None or len(axes) != shape_len:
+                raise ValueError(
+                    f"Could not find N5 multiscales axes matching rank {shape_len} "
+                    f"for array '{rel_path}'. Source must carry an 'axes' attribute "
+                    f"in an enclosing group's attributes.json."
+                )
+            array_dim_names[rel_path] = axes
 
         # copy input n5 tree structure to output zarr and add ome-metadata, when N5 metadata is present
         z_store = zarr.storage.LocalStore(dest)
@@ -329,6 +359,7 @@ class N5Group(Volume):
             src_arr = open_ts(src_spec)
             shape = src_arr.shape
             dtype = np.dtype(src_arr.dtype.numpy_dtype)
+            dim_names = array_dim_names[rel_path]
 
             arr_chunk_shape = [min(c, s) for c, s in zip(list(chunk_shape)[-len(shape):], shape)]
             arr_shard_shape = (
@@ -340,8 +371,6 @@ class N5Group(Volume):
             )
             if arr_shard_shape is not None:
                 check_shardslab_fits_in_ram(arr_shard_shape, dtype, arr_chunk_shape, client)
-
-            dim_names = list(self.metadata["axes"])
 
             dst_spec = zarr3_spec(
                 store_path=dest,

@@ -53,7 +53,9 @@ def init_dataset(src :str,
 
     if any(part.endswith('.n5') for part in src_path.parts):
         return N5Group(*params)
-    elif ext == '.zarr':
+    elif ext == '.zarr' or any(part.endswith('.zarr') for part in src_path.parts):
+        # src may be the .zarr root or any group inside it (e.g. a single
+        # multiscale array group). Require a .zgroup so we only convert groups.
         if (src_path / '.zgroup').exists():
             return Zarr2Group(*params)
         raise ValueError(f"zarr v3 as source is not supported: {src}")
