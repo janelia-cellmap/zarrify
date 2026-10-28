@@ -1,16 +1,12 @@
 """One conversion per source format; each test checks values and OME-NGFF 0.5 metadata of its output."""
-import json
-
 import mrcfile
 import numpy as np
 import ome_zarr_models.v05
 import pytest
-import tensorstore as ts
 import tifffile
 import zarr
 
 from zarrify.to_zarr import to_zarr
-from zarrify.utils.dask_utils import initialize_dask_client
 from zarrify.utils.ts_utils import open_ts, zarr3_spec
 
 
@@ -109,45 +105,24 @@ def test_n5_to_zarr3(tmp_path, make_n5_source, dask_client):
     assert _dimension_names(dest) == ["c", "y", "x"]
 
 
-def test_zarr2_to_zarr3(tmp_path):
-    """Test zarr v2 store to zarr3 conversion."""
-    shape = (10, 32, 32)
-    chunks = (10, 32, 32)
-    data = np.random.randint(0, 255, shape, dtype=np.uint8)
+def test_zarr2_to_zarr3(tmp_path, make_zarr2_source, dask_client):
+    """Source is a multiscales group inside the store; 0.4 metadata is upgraded to 0.5 and
+    dimension_names come from the source multiscales, not the config axes."""
+    data = np.random.randint(1, 255, (4, 32, 32), dtype=np.uint8)
+    src = make_zarr2_source(data, data.shape, axes=("c", "y", "x"), group="em/fibsem")
+    dest = tmp_path / "out.zarr"
 
-    src_path = tmp_path / "test_src.zarr"
-    z2_arr_spec = {
-        'driver': 'zarr',
-        'kvstore': {'driver': 'file', 'path': str(src_path)},
-        'path': 's0',
-        'metadata': {
-            'dtype': np.dtype(data.dtype).str,
-            'shape': list(shape),
-            'chunks': list(chunks),
-        },
-        'create': True,
-        'open': True,
-    }
-    ts.open(z2_arr_spec).result()[:].write(data).result()
+    to_zarr(str(src), str(dest), dask_client, workers=1,
+            axes=["z", "y", "x"], scale=[1.0, 1.0, 1.0],
+            translation=[0.0, 0.0, 0.0], units=["nanometer"] * 3,
+            zarr_chunks=[4, 32, 32])
 
-    multiscales = [{
-        'version': '0.4',
-        'axes': [{'name': ax, 'type': 'space', 'unit': 'nanometer'} for ax in ['z', 'y', 'x']],
-        'datasets': [{'path': 's0', 'coordinateTransformations': [{'type': 'scale', 'scale': [1.0, 1.0, 1.0]}]}],
-    }]
-    (src_path / '.zgroup').write_text(json.dumps({'zarr_format': 2}))
-    (src_path / '.zattrs').write_text(json.dumps({'multiscales': multiscales}))
+    assert np.array_equal(_read(dest), data)
 
-    dest_path = tmp_path / "test_dst.zarr"
-    dask_client = initialize_dask_client('local')
-    to_zarr(str(src_path), str(dest_path), dask_client,
-            axes=['z', 'y', 'x'], scale=[1.0, 1.0, 1.0],
-            translation=[0.0, 0.0, 0.0], units=['nanometer', 'nanometer', 'nanometer'],
-            zarr_chunks=[10, 32, 32])
-
-    dest_data = open_ts(zarr3_spec(str(dest_path), 's0'))[:].read().result()
-    assert dest_data.shape == data.shape
-    assert np.array_equal(dest_data, data)
-
-    dst_root = zarr.open_group(zarr.storage.LocalStore(str(dest_path)), mode='r')
-    assert 'ome' in dst_root.attrs
+    attrs = _root_attrs(dest)
+    assert "multiscales" not in attrs, "top-level 0.4 multiscales must not be kept"
+    assert attrs["ome"]["version"] == "0.5"
+    ms = attrs["ome"]["multiscales"][0]
+    assert "version" not in ms, "0.5 puts version at the ome level, not in multiscale entries"
+    assert [a["name"] for a in ms["axes"]] == ["c", "y", "x"]
+    assert _dimension_names(dest) == ["c", "y", "x"]
